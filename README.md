@@ -10,6 +10,11 @@ ReInk - is an **experimental** utility to reset ink level in new chiped *Epson*
 This utility is supposed to be an Open Source alternative to Windows program
 [SSC Service Utility](http://www.ssclg.com/epsone.shtml)
 
+## Disclaimer
+
+THIS UTILITY MAY DAMAGE YOUR PRINTER !!!
+USE CAREFULLY AND AT YOUR OWN RISK.
+
 ## Features
 To find out features of current ReInk version look at the source code. :)
 
