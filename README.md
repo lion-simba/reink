@@ -13,6 +13,7 @@ This utility is supposed to be an Open Source alternative to Windows program
 ## Disclaimer
 
 THIS UTILITY MAY DAMAGE YOUR PRINTER !!!
+
 USE CAREFULLY AND AT YOUR OWN RISK.
 
 ## Features
