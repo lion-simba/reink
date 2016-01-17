@@ -143,8 +143,8 @@
 #include "printers.h" //printers defs
 
 #define REINK_VERSION_MAJOR 0
-#define REINK_VERSION_MINOR 5
-#define REINK_VERSION_REV	0
+#define REINK_VERSION_MINOR 6
+#define REINK_VERSION_REV   0
 
 #define CMD_NONE			0	//no command
 #define CMD_GETINK			1	//command to display current ink levels
