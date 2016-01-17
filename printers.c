@@ -151,6 +151,25 @@ printer_t printers[] = {
 			.len = 				4,
 			.addr = 			{0x1c, 0x1d, 0x1e, 0x1f},
 		},
+	},
+	[PM_SP1410] = {
+		.name = "EPSON Stylus Photo 1410",
+		.model_name = "Stylus Photo 1410",
+		.model_code = {0x10, 0x20},
+		.twobyte_addresses = 0,
+		.inkmap = {
+			.mask = INK_BLACK | INK_CYAN | INK_MAGENTA | INK_YELLOW | INK_LIGHTCYAN | INK_LIGHTMAGENTA,
+			.black = 			{0x04, 0x05, 0x06, 0x07},
+			.cyan = 			{0x08, 0x09, 0x0a, 0x0b},
+			.magenta = 			{0x0c, 0x0d, 0x0e, 0x0f},
+			.yellow = 			{0x10, 0x11, 0x12, 0x13},
+			.lightcyan = 		{0x14, 0x15, 0x16, 0x17},
+			.lightmagenta = 	{0x18, 0x19, 0x1a, 0x1b},
+		},
+		.wastemap = {
+			.len = 				0,
+			.addr = 			{0x00, 0x00, 0x00, 0x00},
+		},
 	}
 };
 

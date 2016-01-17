@@ -144,7 +144,7 @@
 
 #define REINK_VERSION_MAJOR 0
 #define REINK_VERSION_MINOR 6
-#define REINK_VERSION_REV   0
+#define REINK_VERSION_REV   1
 
 #define CMD_NONE			0	//no command
 #define CMD_GETINK			1	//command to display current ink levels
@@ -868,6 +868,12 @@ int do_waste_reset(const char* raw_device, unsigned int pm)
 
 	if (pm == PM_UNKNOWN)
 		return 1;
+		
+	if (printers[pm].wastemap.len == 0)
+	{
+		fprintf(stderr, "ReInk doesn't support waste ink counter reset for your printer yet.\n");
+		return 1;
+	}
 
 	if ((device = printer_connect(raw_device)) < 0)
 		return 1;
