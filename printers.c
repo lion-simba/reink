@@ -1,5 +1,6 @@
 /* This file is part of ReInk.
  * Copyright (C) 2008-2016 Alexey Osipov public@alexey.osipov.name
+ * Copyright (C) 2014 Andrei Komarovskikh andrei.komarovskikh@gmail.com
  *
  * ReInk is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -111,6 +112,44 @@ printer_t printers[] = {
 		.wastemap = {
 			.len = 				2,
 			.addr = 			{0x1a, 0x1b, 0x00, 0x00},
+		},
+	},
+	[PM_SPT50] = {
+		.name = "Epson Stylus Photo T50",
+		.model_name = "Epson Stylus Photo T50",
+		.model_code = {0x77, 0x00},
+		.twobyte_addresses = 0,
+		.inkmap = {
+			.mask = INK_BLACK | INK_CYAN | INK_MAGENTA | INK_YELLOW | INK_LIGHTCYAN | INK_LIGHTMAGENTA,
+			.black = 			{0x02, 0x03, 0x04, 0x05},
+			.cyan = 			{0x0e, 0x0f, 0x10, 0x11},
+			.magenta = 			{0x0a, 0x0b, 0x0c, 0x0d},
+			.yellow = 			{0x06, 0x07, 0x08, 0x09},
+			.lightcyan = 		{0x16, 0x17, 0x18, 0x19},
+			.lightmagenta = 	{0x12, 0x13, 0x14, 0x15},
+		},
+		.wastemap = {
+			.len = 				4,
+			.addr = 			{0x1c, 0x1d, 0x1e, 0x1f},
+		},
+	},
+	[PM_SPP50] = {
+		.name = "Epson Stylus Photo P50",
+		.model_name = "Epson Stylus Photo P50",
+		.model_code = {0x77, 0x00},
+		.twobyte_addresses = 0,
+		.inkmap = {
+			.mask = INK_BLACK | INK_CYAN | INK_MAGENTA | INK_YELLOW | INK_LIGHTCYAN | INK_LIGHTMAGENTA,
+			.black = 			{0x02, 0x03, 0x04, 0x05},
+			.cyan = 			{0x0e, 0x0f, 0x10, 0x11},
+			.magenta = 			{0x0a, 0x0b, 0x0c, 0x0d},
+			.yellow = 			{0x06, 0x07, 0x08, 0x09},
+			.lightcyan = 		{0x16, 0x17, 0x18, 0x19},
+			.lightmagenta = 	{0x12, 0x13, 0x14, 0x15},
+		},
+		.wastemap = {
+			.len = 				4,
+			.addr = 			{0x1c, 0x1d, 0x1e, 0x1f},
 		},
 	}
 };

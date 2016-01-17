@@ -22,6 +22,8 @@
 #define PM_SC580		2	//EPSON Stylus Color 580
 #define PM_SP1290		3	//EPSON Stylus Photo 1290
 #define PM_SC680		4	//EPSON Stylus Color 680
+#define PM_SPT50		5	//EPSON Stylus Photo T50
+#define PM_SPP50		6	//EPSON Stylus Photo P50
 
 //ink counters EEPROM map
 #define INK_BLACK			0x01
