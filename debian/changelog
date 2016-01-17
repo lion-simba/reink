@@ -1,3 +1,11 @@
+reink (0.6) UNRELEASED; urgency=low
+
+  * Support for new printers:
+  *   Epson Stylus Photo P50
+  *   Epson Stylus Photo T50
+
+ -- Alexey Osipov <public@alexey.osipov.name>  Sun, 17 Jan 2016 18:03:40 +0600
+
 reink (0.5) UNRELEASED; urgency=low
 
   * Support for new printer: Epson Stylus Color 680.
