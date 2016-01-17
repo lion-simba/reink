@@ -1,0 +1,50 @@
+reink (0.5) UNRELEASED; urgency=low
+
+  * Support for new printer: Epson Stylus Color 680.
+
+ -- Alexey Osipov <public@alexey.osipov.name>  Sun, 27 Sep 2009 12:17:44 +0700
+
+reink (0.4) UNRELEASED; urgency=low
+
+  * Storing printers data in separate source file - printers.c.
+  * Epson Stylus Color 580 should really work now.
+  * Support for new printer: Epson Stylus Photo 1290.
+
+ -- Alexey Osipov <public@alexey.osipov.name>  Sun, 27 Sep 2009 00:36:39 +0700
+
+reink (0.3) UNRELEASED; urgency=low
+
+  * Support for new printer: Epson Stylus Color 580.
+  * Ability to reset printer's waste ink counter (-s switch).
+
+ -- Alexey Osipov <public@alexey.osipov.name>  Fri, 25 Sep 2009 21:13:20 +0700
+
+reink (0.2.2) UNRELEASED; urgency=low
+
+  * Flush stdout before starting bruteforce.
+  * Ability to enforce full debug mode while making testreport.
+
+ -- Alexey Osipov <public@alexey.osipov.name>  Wed, 15 Jul 2009 20:57:03 +0700
+
+reink (0.2.1) UNRELEASED; urgency=low
+
+  * Correct read_eeprom_address in case of two-byte addresses.
+
+ -- Alexey Osipov <public@alexey.osipov.name>  Tue, 02 Jun 2009 15:32:06 +0700
+
+reink (0.2) UNRELEASED; urgency=low
+
+  * Refactoring of command building facility. Now commands build by its
+    known format and not by "magic".
+  * Support for two-bytes eeprom_read and eeprom_write commands.
+  * Imporved test report facility: now capable to guess the secret model code
+    (with brute force); two-pass test report for help me to guess eeprom
+    addresses with ink data.
+
+ -- Alexey Osipov <public@alexey.osipov.name>  Sat, 30 May 2009 14:07:55 +0700
+
+reink (0.1) UNRELEASED; urgency=low
+
+  * Initial release. (Closes: #XXXXXX)
+
+ -- Alexey Osipov <public@alexey.osipov.name>  Sat, 30 May 2009 13:58:45 +0700
