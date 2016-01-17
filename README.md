@@ -34,6 +34,8 @@ channels, service discovery, data transmission and so on).
 * EPSON Stylus Color 580
 * EPSON Stylus Photo 1290
 * EPSON Stylus Color 680
+* EPSON Stylus Photo T50
+* EPSON Stylus Photo P50
 
 ## How to get my printer supported?
 To be documented. In short: genereate two test reports, create an issue with your printer name and attach the report you've generated.
