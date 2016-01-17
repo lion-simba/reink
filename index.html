@@ -1,0 +1,64 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html lang="en">
+<head>
+<meta name="Content-Type" value="text/html; charset=UTF-8">
+<meta name="Description" content="ReInk - is experimental utility to reset ink level in new chiped Epson
+cartridges under Linux">
+<meta name="Keywords" content="printer, counter reset, cartridge reset, ink reset, refilling, Epson, Linux, ReInk,
+SSC Service Utility">
+<title>ReInk</title>
+</head>
+<body>
+<h1>ReInk</h1>
+<h2>About</h2>
+<p><strong>ReInk</strong> - is <em>experimental</em> utility to reset ink level in new chiped <em>Epson</em>
+ cartridges programmatically through regular printer interface (i.e. without 
+ any additional hardware controllers).</p>
+<p>This utility is supposed to be an Open Source alternative to Windows program named 
+<a href="http://www.ssclg.com/epsone.shtml">"SSC Service Utility"</a>.</p>
+
+<h2>Features</h2>
+<p>To find out features of current ReInk version look at the source code :).</p>
+<p>Major functions list:</p>
+<ul>
+<li>Infrastructure for communicating with printer by means of IEEE 1284.4 protocol (initializing, opening/closing
+channels, service discovery, data transmission and so on).</li>
+<li>Read from arbitary EEPROM address for supported printers.</li>
+<li>Write to arbitary EEPROM address for supported printers.</li>
+<li>Get ink levels for every EPSON Stylus printer I think (almost "copied" from escputil).</li>
+<li>Reset ink levels for supported printers.</li>
+<li> Reset waste ink counter for supported printers.</li>
+<li><strong>Can make test reports, containing information about printer</strong></li>
+</ul>
+<p>Supported printers:</p>
+<ul>
+<li>EPSON Stylus Photo 790
+<li>EPSON Stylus Color 580
+<li>EPSON Stylus Photo 1290
+<li>EPSON Stylus Color 680
+<li>EPSON Stylus Photo T50
+<li>EPSON Stylus Photo P50
+</ul>
+<p>Note that program written in the "wide" way, so it's easy to adjust it to work with
+other printers. Just try. :) </p>
+<p><strong>If you are not a developer, but want your Epson printer become supported, 
+look <a href="report.html">here</a>.</strong></p>
+
+<h2>Usage</h2>
+<p>Run the program without arguments. :)</p>
+<p>In most cases you should power-off and then power-on printer after reseting ink level. This will allow printer 
+to save new data in the cartridges.</p>
+
+<h2>Download</h2>
+<p>The program redistributes as a source tarball, which can be downloaded from
+<a href="https://github.com/lion-simba/reink/releases">GitHub</a>. Run "make" to compile.</p>
+<p><a href="https://raw.githubusercontent.com/lion-simba/reink/master/debian/changelog">Full changelog</a></p>
+<h2>Authors</h2>
+<ol>
+<li>Alexey Osipov (public _a_ alexey.osipov.name)<br>
+    first version.
+<li>Elena (elena _a_ elenadomain.it)<br>
+    reverse engineering of the protocol.
+</ol>
+</body>
+</html>

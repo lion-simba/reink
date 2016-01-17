@@ -1,0 +1,54 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html lang="en">
+<head>
+<meta name="Content-Type" value="text/html; charset=UTF-8">
+<meta name="Description" content="ReInk test report building, help to project">
+<meta name="Keywords" content="printer, test report, support, Epson, Linux, ReInk, SSC Service Utility">
+<title>ReInk - Reporting</title>
+</head>
+<body>
+<h1><a href="index.html">ReInk</a> - Making test report</h1>
+<h2>Why?</h2>
+<p>Different printers may have different commands to do various things.
+In particular - to read from or write to EEPROM.</p>
+<p>So, this is unsafe to try to use the same write command on all printers - it can
+break something. :) To avoid this, we need accurately inspect the protocol of an
+unknown printer before doing something with it.</p>
+<p>Unfortaintly, I have only one Epson printer. Hence, I can't inspect others. But you CAN.</p>
+<h2>How?</h2>
+<p>As mentioned on main page feature list, ReInk can make a testreport for you.</p>
+<p>Turn on your printer, and run the command:</p>
+<pre>
+./reink -t -r &lt;your printer raw device file&gt; &gt; &lt;report file&gt;
+</pre>
+For example:
+<pre>
+./reink -t -r /dev/usb/lp0 > testreport.log
+</pre>
+<p><strong>Note that you need <em>read and write</em> access to device file in order 
+to make correct test report!</strong></p>
+<p>Upon completion, testreport.log file will contain some technical information about your
+printer.</p>
+<p><strong>Beginning with version 0.2 ReInk can do two-pass reports. They help me to know
+more about printer's EEPROM structure.</strong> After successful complete of the first
+pass, you can recieve such a prompt:</p>
+<pre>
+Report complete. Thank you.
+You will provide even more help for me if
+you run printer head cleaning now and
+then make another report with command:
+./reink -r /dev/usb/lp0 -tXXXX > ./testreport2.log
+</pre>
+<p>XXXX is some digits. If you see them, then you're lucky and perhaps your printer will
+be supported by ReInk soon. Before making second-pass report <strong>you have to make printer's
+head cleaning</strong> (it will force ink levels change in printer, so I then can try to identify
+EEPROM addresses with ink information). To make second-pass report just execute the command in the last
+line of the prompt. If you didn't recieve such a prompt, then you're less lucky, but
+your first-pass report is still useful for me. Thank you. :)</p>
+<p>Then you should open new <a href="https://github.com/lion-simba/reink/issues">issue on github</a>
+with the name of your printer and attach report there.
+If there is already an issue for you printer, you should attach test report to that existent issue.
+Please don't think that if there is already an issue for your priner, your report isn't helpful.
+The more reports I have - the faster support for your printer will become available!
+</body>
+</html>
