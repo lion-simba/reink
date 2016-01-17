@@ -56,6 +56,7 @@ typedef struct _printer_s {
 	int twobyte_addresses;			//is printer's EEPROM uses two-byte addresses?
 	ink_map_t inkmap;
 	waste_map_t wastemap;
+	int use_multi_read;				//use multibyte read for printer instead of one-byte
 } printer_t;
 
 extern printer_t printers[];

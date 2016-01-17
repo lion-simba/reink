@@ -144,7 +144,7 @@
 
 #define REINK_VERSION_MAJOR 0
 #define REINK_VERSION_MINOR 5
-#define REINK_VERSION_REV	0
+#define REINK_VERSION_REV	1
 
 #define CMD_NONE			0	//no command
 #define CMD_GETINK			1	//command to display current ink levels
@@ -155,12 +155,15 @@
 #define CMD_ZEROWASTE		6	//command to reset waste ink counter
 
 //EPSON factory commands classes and names
-#define EFCMD_EEPROM_READ	0x41
-#define EFCLS_EEPROM_READ	0x7c
-#define EFCMD_EEPROM_WRITE	0x42
-#define EFCLS_EEPROM_WRITE	0x7c
+#define EFCMD_EEPROM_READ		0x41
+#define EFCLS_EEPROM_READ		0x7c
+#define EFCMD_EEPROM_WRITE		0x42
+#define EFCLS_EEPROM_WRITE		0x7c
+#define EFCMD_EEPROM_MULTIREAD	0x5b
+#define EFCLS_EEPROM_MULTIREAD	0x7c
 
 #define INPUT_BUF_LEN	1024
+#define MAX_MULTI_READ	256
 
 #define D(__c) 	if (ri_debug) {__c;};
 #define D_OK 	D(fprintf(stderr, "OK\n"))
@@ -267,6 +270,15 @@ void init_command(fcmd_header_t* cmd, unsigned int model, unsigned char class, u
     On fail returns -1.
 */
 int read_eeprom_address(int fd, int socket_id, unsigned int model, unsigned short int addr, unsigned char* data);
+
+/*
+	fd - file descriptor for printer raw_device initialized in IEEE 1284.4 mode.
+	socket_id - opened IEEE 1284.4 socket for "EPSON-CTRL" service.	
+	Tries to read <len> bytes from printer's EEPROM starting from address <addr> to buffer pointed by <data>
+	On success returns 0.
+	On fail returns -1.
+*/
+int read_eeprom_address_multi(int fd, int socket_id, unsigned int model, unsigned short int addr, unsigned int len, unsigned char* data);
 
 /*
     fd - file descriptor for printer raw_device
@@ -758,8 +770,11 @@ int do_eeprom_dump(const char* raw_device, unsigned int pm, unsigned short int s
 	int device; //file descriptor of the printer raw_device
 	int ctrl_socket; //IEEE 1284.4 socket identifier for "EPSON-CTRL" channel
 
-	unsigned char data; //eeprom data (one byte)
+	unsigned char data; //eeprom data (one byte)		
 	unsigned short int cur_addr; //current address
+	
+	unsigned char multidata[MAX_MULTI_READ]; //eeprom data (multi bytes)
+	unsigned int len = end_addr - start_addr + 1; //data length
 
 	int i;
 
@@ -783,16 +798,41 @@ int do_eeprom_dump(const char* raw_device, unsigned int pm, unsigned short int s
 
 	D(fprintf(stderr, "Let's get the EEPROM dump (%x - %x)...\n", start_addr, end_addr))
 
-	for (cur_addr = start_addr; (cur_addr <= end_addr) && (cur_addr >= start_addr); cur_addr++)
+	if (printers[pm].use_multi_read)
 	{
-		if (read_eeprom_address(device, ctrl_socket, pm, cur_addr, &data))
+		D(fprintf(stderr, "Using multibyte read function...\n"))
+		
+		if (len > MAX_MULTI_READ)
 		{
-			fprintf(stderr, "Fail to read EEPROM data from address %x.\n", cur_addr);
+			fprintf(stderr, "Maximum allowed eeprom dump length is %d. Requested: %d. Aborting.\n", MAX_MULTI_READ, len);
 			return 1;
 		}
-		printf("0x%04X = 0x%02X\n", cur_addr, data);
-		if (cur_addr == end_addr)
-			break; //or there may be short int overflow and infinite loop
+		
+		if (read_eeprom_address_multi(device, ctrl_socket, pm, start_addr, len, multidata))
+		{
+			fprintf(stderr, "Fail to read %d EEPROM bytes starting from address %x.\n", len, start_addr);
+			return 1;
+		}
+		
+		//print result
+		for(i = 0; i < len; i++)
+			printf("0x%04X = 0x%02X\n", start_addr + i, multidata[i]);
+		
+		D_OK
+	}
+	else
+	{
+		for (cur_addr = start_addr; (cur_addr <= end_addr) && (cur_addr >= start_addr); cur_addr++)
+		{
+			if (read_eeprom_address(device, ctrl_socket, pm, cur_addr, &data))
+			{
+				fprintf(stderr, "Fail to read EEPROM data from address %x.\n", cur_addr);
+				return 1;
+			}
+			printf("0x%04X = 0x%02X\n", cur_addr, data);
+			if (cur_addr == end_addr)
+				break; //or there may be short int overflow and infinite loop
+		}
 	}
 
 	D_OK
@@ -868,6 +908,12 @@ int do_waste_reset(const char* raw_device, unsigned int pm)
 
 	if (pm == PM_UNKNOWN)
 		return 1;
+		
+	if (printers[pm].wastemap.len == 0)
+	{
+		fprintf(stderr, "ReInk doesn't support waste ink counter reset for your printer yet.\n");
+		return 1;
+	}
 
 	if ((device = printer_connect(raw_device)) < 0)
 		return 1;
@@ -1498,6 +1544,112 @@ int read_eeprom_address(int fd, int socket_id, unsigned int pm, unsigned short i
 	D(fprintf(stderr, "EEPROM addr %#x = %#x.\n", addr, *data))
 
 	D(fprintf(stderr, "^^^ read_eeprom_address ^^^\n"))
+
+	return 0;
+}
+
+int read_eeprom_address_multi(int fd, int socket_id, unsigned int pm, unsigned short int addr, unsigned int len, unsigned char* data)
+{
+	char cmd[12]; // full command with address
+	int cmd_len = 11; //length of the command
+	int cmd_args_count = 2; //command arguments count (address + count)
+
+	char reply[INPUT_BUF_LEN]; // buffer for printer reply
+	int actual; // actual reply length
+
+	char reply_data[MAX_MULTI_READ * 2 + 4]; // buffer for "EE" tag (contains readed bytes + address)
+	int reply_data_len = len * 2 + 2; //expected reply_data length (len bytes data + 1-byte address)
+	int actual_reply_data_len;
+	char* reply_data_ptr; //ptr to readed bytes in reply_data
+
+	char onebyte[5]; //contains one or two HEX byte string ("B2\0" for example)
+	unsigned short int replyaddr; //reply address (for confirmation)
+	int actual_address_len = printers[pm].twobyte_addresses ? 4 : 2;
+	
+	int i;
+
+	D(fprintf(stderr, "=== read_eeprom_address (multi) ===\n"))
+
+	if (len > MAX_MULTI_READ)
+	{
+		D(fprintf(stderr, "Reply buffer too small (%d) to fit %d bytes.\n", MAX_MULTI_READ, len))
+		return -1;
+	}
+
+	cmd[9] = addr & 0xFF;
+	if (printers[pm].twobyte_addresses)
+	{
+		cmd[10] = (addr >> 8) & 0xFF;
+		cmd_len = 12;
+		cmd_args_count += 1;
+		reply_data_len += 2;
+		
+		cmd[11] = len & 0xFF;
+	}
+	else
+	{
+		if ((addr >> 8) != 0)
+		{
+			D(fprintf(stderr, "Printer \"%s\" don't support two-byte addresses. Continuing using low byte only.\n", printers[pm].name));
+			addr = addr & 0xFF;
+		}
+		
+		cmd[10] = len & 0xFF;
+	}
+
+	init_command((fcmd_header_t*)cmd, pm, EFCLS_EEPROM_MULTIREAD, EFCMD_EEPROM_MULTIREAD, cmd_args_count);
+
+	D(fprintf(stderr, "Reading eeprom address %#x... ", addr))
+	actual = INPUT_BUF_LEN;
+	if (printer_transact(fd, socket_id, cmd, cmd_len, reply, &actual))
+	{
+		D(fprintf(stderr, "Transact failed.\n"))
+		return -1;
+	}
+
+	if (get_tag(reply, actual, "EE:", reply_data, MAX_MULTI_READ))
+	{
+		D(fprintf(stderr, "Can't get reply data.\n"))
+		return -1;
+	}
+	D_OK
+
+	actual_reply_data_len = strlen(reply_data);
+	if (actual_reply_data_len != reply_data_len)
+	{
+		D(fprintf(stderr, "ReplyData length (%d) != %d\n", actual_reply_data_len, reply_data_len))
+		reply_data_len -= 2; //assuming this is one-byte addresses printer
+		if (actual_reply_data_len == reply_data_len)
+		{
+			actual_address_len = 2;
+			D(fprintf(stderr, "Seems like printer with one-byte addresses EEPROM.\n"))
+		}
+		else
+			return -1;
+	}
+	
+	strncpy(onebyte, reply_data, actual_address_len);
+	onebyte[actual_address_len] = '\0';
+
+	replyaddr = strtol(onebyte, NULL, 16);
+	if (replyaddr != addr)
+	{
+		D(fprintf(stderr, "Reply address (%x) don't match requested (%x).\n", replyaddr, addr))
+		return -1;
+	}
+	
+	reply_data_ptr = reply_data + actual_address_len; //the data itself
+	
+	for(i = 0; i < len; i++)
+	{
+		strncpy(onebyte, reply_data_ptr + i*2, 2);
+		onebyte[2] = '\0';
+		data[i] = strtol(onebyte, NULL, 16);
+		
+		D(fprintf(stderr, "EEPROM addr %#x = %#x.\n", addr + i, data[i]))
+	}
+
+	D(fprintf(stderr, "^^^ read_eeprom_address (multi) ^^^\n"))
 
 	return 0;
 }

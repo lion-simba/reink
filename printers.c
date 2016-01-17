@@ -36,6 +36,7 @@ printer_t printers[] = {
 			.len = 				0,
 			.addr = 			{0x00, 0x00, 0x00, 0x00},
 		},
+		.use_multi_read = 0,
 	},
 	[PM_SP790] = {
 		.name = "EPSON Stylus Photo 790",
@@ -55,6 +56,7 @@ printer_t printers[] = {
 			.len = 				2,
 			.addr = 			{0x1a, 0x1b, 0x00, 0x00},
 		},
+		.use_multi_read = 0,
 	},
 	[PM_SC580] = {
 		.name = "EPSON Stylus Color 580",
@@ -74,6 +76,7 @@ printer_t printers[] = {
 			.len = 				2,
 			.addr = 			{0x66, 0x67, 0x00, 0x00},
 		},
+		.use_multi_read = 0,
 	},
 	[PM_SP1290] = {
 		.name = "EPSON Stylus Photo 1290",
@@ -93,6 +96,7 @@ printer_t printers[] = {
 			.len = 				4,
 			.addr = 			{0x6c, 0x6d, 0x6e, 0x6f},
 		},
+		.use_multi_read = 0,
 	},
 	[PM_SC680] = {
 		.name = "EPSON Stylus Color 680",
@@ -112,6 +116,7 @@ printer_t printers[] = {
 			.len = 				2,
 			.addr = 			{0x1a, 0x1b, 0x00, 0x00},
 		},
+		.use_multi_read = 0,
 	}
 };
 
