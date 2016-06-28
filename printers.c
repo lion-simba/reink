@@ -151,6 +151,24 @@ printer_t printers[] = {
 			.len = 				4,
 			.addr = 			{0x1c, 0x1d, 0x1e, 0x1f},
 		},
+	},
+	[PM_XP630] = {
+		.name = "Epson Expression Premium XP-630",
+		.model_name = "XP-630 Series",
+		.model_code = {0x28, 0x09},
+		.twobyte_addresses = 0,
+		.inkmap = {
+			.mask = INK_BLACK | INK_CYAN | INK_MAGENTA | INK_YELLOW | INK_PHOTOBLACK,
+			.black =                        {0x26, 0x27, 0x28, 0x29},
+			.cyan =                         {0x1a, 0x1b, 0x1c, 0x1d},
+			.magenta =                      {0x1e, 0x1f, 0x20, 0x21},
+			.yellow =                       {0x22, 0x23, 0x24, 0x25},
+			.photoblack =                   {0x16, 0x17, 0x18, 0x19},
+		},
+		.wastemap = {
+			.len =                          4,
+			.addr =                         {0x08, 0x09, 0x0a, 0x0b},
+		},
 	}
 };
 
