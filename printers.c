@@ -151,6 +151,19 @@ printer_t printers[] = {
 			.len = 				4,
 			.addr = 			{0x1c, 0x1d, 0x1e, 0x1f},
 		},
+	},
+	[PM_XP620] = {
+		.name = "Epson Expression Premium XP-620",
+		.model_name = "XP-620 Series",
+		.model_code = {0x57, 0x05},
+		.twobyte_addresses = 1,
+		.inkmap = {
+			.mask = 0,
+		},
+		.wastemap = {
+			.len = 				5,
+			.addr = 			{0x10, 0x11, 0x12, 0x13, 0x06},
+		},
 	}
 };
 

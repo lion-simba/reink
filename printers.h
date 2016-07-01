@@ -24,6 +24,7 @@
 #define PM_SC680		4	//EPSON Stylus Color 680
 #define PM_SPT50		5	//EPSON Stylus Photo T50
 #define PM_SPP50		6	//EPSON Stylus Photo P50
+#define PM_XP620		7	//EPSON Expression Premium XP-620
 
 //ink counters EEPROM map
 #define INK_BLACK			0x01
@@ -45,7 +46,7 @@ typedef struct _ink_map {
 //waste counter EEPROM map
 typedef struct _waste_map {
 	unsigned char len;		//count of used bytes from addr
-	unsigned char addr[4];
+	unsigned char addr[5];
 } waste_map_t;
 
 //the printer
