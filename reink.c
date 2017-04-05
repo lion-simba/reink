@@ -576,7 +576,7 @@ int main(int argc, char** argv)
 	case CMD_ZEROINK:
 		return do_ink_reset(raw_device, pmodel, ink_type);
 		break;
-		
+
 	case CMD_ZEROWASTE:
 		return do_waste_reset(raw_device, pmodel);
 		break;
@@ -683,7 +683,7 @@ int do_ink_reset(const char* raw_device, unsigned int pm, unsigned char ink_type
 	int ctrl_socket; //IEEE 1284.4 socket identifier for "EPSON-CTRL" channel
 
 	D(fprintf(stderr, "=== do_ink_reset ===\n"))
-	
+
 	if (pm == PM_UNKNOWN)
 		return 1;
 
@@ -697,16 +697,16 @@ int do_ink_reset(const char* raw_device, unsigned int pm, unsigned char ink_type
 	{
 		if (!(cur_ink & ink_type))
 			continue;
-		
+
 		if (!(printers[pm].inkmap.mask & cur_ink))
 		{
 			if (ink_type == 0xFF) //reset all inks
 				continue;
-				
+
 			fprintf(stderr, "Printer \"%s\" doesn't have ink bit %d.\n", printers[pm].name, cur_ink);
 			return 1;
 		}
-		
+
 		switch(cur_ink)
 		{
 		case INK_BLACK:
@@ -731,7 +731,7 @@ int do_ink_reset(const char* raw_device, unsigned int pm, unsigned char ink_type
 			fprintf(stderr, "Unknown ink bit %d.\n", cur_ink);
 			return 1;
 		}
-		
+
 		D(fprintf(stderr, "Resetting ink bit %d... ", cur_ink));
 		for (i=0;i<4;i++)
 			if (write_eeprom_address(device, ctrl_socket, pm, cur_addr[i], 0x00))
@@ -741,7 +741,7 @@ int do_ink_reset(const char* raw_device, unsigned int pm, unsigned char ink_type
 			}
 		D_OK
 	}
-	
+
 	if (close_channel(device, ctrl_socket) < 0)
 		return 1;
 
@@ -864,6 +864,10 @@ int do_waste_reset(const char* raw_device, unsigned int pm)
 	int device; //file descriptor of the printer raw_device
 	int ctrl_socket; //IEEE 1284.4 socket identifier for "EPSON-CTRL" channel
 
+	int errorReceived;
+	unsigned char data;
+
+
 	D(fprintf(stderr, "=== do_waste_reset ===\n"))
 
 	if (pm == PM_UNKNOWN)
@@ -876,13 +880,48 @@ int do_waste_reset(const char* raw_device, unsigned int pm)
 		return 1;
 
 	D(fprintf(stderr, "Resetting... "));
-	for (i=0;i<printers[pm].wastemap.len;i++)
-		if (write_eeprom_address(device, ctrl_socket, pm, printers[pm].wastemap.addr[i], 0x00))
-		{
-			fprintf(stderr, "Can't write to eeprom.\n");
-			return 1;
-		}
-	D_OK
+
+    if (pm == PM_XP620)
+    {
+        errorReceived = write_eeprom_address(device, ctrl_socket, pm, 0x0010, 0x00);
+        if (!errorReceived) write_eeprom_address(device, ctrl_socket, pm, 0x0011 , 0x00);
+        if (read_eeprom_address(device, ctrl_socket, pm, 0x0006, &data))
+        {
+            fprintf(stderr, "Fail to read EEPROM data from address 0x0006.\n");
+            return 1;
+        }
+        if (!errorReceived) write_eeprom_address(device, ctrl_socket, pm, 0x0006, 0x00);
+        if (!errorReceived) write_eeprom_address(device, ctrl_socket, pm, 0x0014, 0x00);
+        if (!errorReceived) write_eeprom_address(device, ctrl_socket, pm, 0x0015, 0x00);
+        if (!errorReceived) write_eeprom_address(device, ctrl_socket, pm, 0x0034, 0x5E);
+        if (!errorReceived) write_eeprom_address(device, ctrl_socket, pm, 0x0012, 0x00);
+        if (!errorReceived) write_eeprom_address(device, ctrl_socket, pm, 0x0013, 0x00);
+        if (read_eeprom_address(device, ctrl_socket, pm, 0x0006, &data))
+        {
+            fprintf(stderr, "Fail to read EEPROM data from address 0x0006.\n");
+            return 1;
+        }
+        if (!errorReceived) write_eeprom_address(device, ctrl_socket, pm, 0x0006, 0x00);
+        if (!errorReceived) write_eeprom_address(device, ctrl_socket, pm, 0x0035, 0x5E);
+        if (!errorReceived) write_eeprom_address(device, ctrl_socket, pm, 0x01ED, 0x00);
+
+        if (errorReceived)
+        {
+            fprintf(stderr, "Can't write to eeprom.\n");
+            return 1;
+        }
+    }
+
+    else
+    {
+        for (i=0; i<printers[pm].wastemap.len; i++)
+            if (write_eeprom_address(device, ctrl_socket, pm, printers[pm].wastemap.addr[i], 0x00))
+            {
+                fprintf(stderr, "Can't write to eeprom.\n");
+                return 1;
+            }
+    }
+    	D_OK
 
 	if (close_channel(device, ctrl_socket) < 0)
 		return 1;
@@ -1216,7 +1255,7 @@ unsigned int printer_model(const char* raw_device)
 			break;
 		}
 	}
-	
+
 	if (close_channel(device, ctrl_socket) < 0)
 		return model;
 
@@ -1504,7 +1543,7 @@ int read_eeprom_address(int fd, int socket_id, unsigned int pm, unsigned short i
 
 int write_eeprom_address(int fd, int socket_id, unsigned int pm, unsigned short int addr, unsigned char data)
 {
-	char cmd[12]; // full command with address
+	char cmd[20]; // full command with address
 	int cmd_len = 11; // full length of the command
 	int cmd_args_len = 2; // command arguments count
 
@@ -1530,6 +1569,23 @@ int write_eeprom_address(int fd, int socket_id, unsigned int pm, unsigned short 
 			D(fprintf(stderr, "Printer \"%s\" don't support two-byte addresses. Continuing using low byte only.\n", printers[pm].name));
 	}
 
+if (pm == PM_XP620)
+{
+	// ---------------------- for XP-620 to work --------------------------------
+	// adds the bytes 42:6d:75:69:62:66:62:2f to the command
+	cmd_args_len += 8;
+	cmd_len +=8;
+	cmd[12] = 0x42;
+	cmd[13] = 0x6d;
+	cmd[14] = 0x75;
+	cmd[15] = 0x69;
+	cmd[16] = 0x62;
+	cmd[17] = 0x66;
+	cmd[18] = 0x62;
+	cmd[19] = 0x2f;
+    // ------------------------
+}
+
 	init_command((fcmd_header_t*)cmd, pm, EFCLS_EEPROM_WRITE, EFCMD_EEPROM_WRITE, cmd_args_len);
 
 	D(fprintf(stderr, "Writing %#x to eeprom address %#x... ", data, addr))
@@ -1540,7 +1596,7 @@ int write_eeprom_address(int fd, int socket_id, unsigned int pm, unsigned short 
 		return -1;
 	}
 
-	if (get_tag(reply, actual, "OK", reply_data, 6))
+    if (get_tag(reply, actual, "OK", reply_data, 6))
 	{
 		D(fprintf(stderr, "Can't get reply data.\n"))
 		return -1;
