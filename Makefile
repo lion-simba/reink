@@ -2,18 +2,16 @@ CFLAGS= -c
 
 all: reink
 
-reink: reink.o d4lib.o printers.o
+SOURCES := reink.c d4lib.c printers.c util.c
+OBJS := $(SOURCES:.c=.o)
+
+reink: ${OBJS}
 	$(CC) $^ -o $@
 
-printers.o: printers.c printers.h
-	$(CC) $(CFLAGS) printers.c -o $@
-    
-reink.o: reink.c printers.h d4lib.h
-	$(CC) $(CFLAGS) reink.c -o $@
-    
-d4lib.o: d4lib.c d4lib.h
-	$(CC) $(CFLAGS) d4lib.c -o $@
+printers.c: printers.h
+reink.c: printers.h d4lib.h util.h
+d4lib.c: d4lib.h util.h
+util.c: util.h
 
 clean:
-	rm -f reink reink.o d4lib.o printers.o
-    
+	rm -f reink ${OBJS}
