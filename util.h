@@ -22,7 +22,9 @@
 #define UTIL_H
 
 #include <stdarg.h>
+#include <string.h>
 
+void hexdump(const void *memory, size_t length);
 int reink_do_log(const char *fmt, va_list args);
 int reink_log(const char *fmt, ...);
 
