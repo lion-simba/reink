@@ -343,6 +343,7 @@ int main(int argc, char** argv)
 	char* str_reink_debug = NULL;	//the value of REINK_DEBUG environmental variable
 
 	setDebug(0);
+	d4lib_set_debug_fn(reink_do_log);
 	str_reink_debug = getenv("REINK_DEBUG");
 	if (str_reink_debug)
 	{

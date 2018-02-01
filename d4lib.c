@@ -36,7 +36,6 @@
  */
  
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -65,7 +64,9 @@ int debugD4     = 1;
 typedef void (*signalHandler_t)(int);
 static signalHandler_t sig;
 static int timeoutGot = 0;
+static int (*d4lib_debug_fn)(const char *fmt, va_list args) = NULL;
 static int _readData(int fd, unsigned char *buf, int len);
+static int d4lib_msg(const char *fmt, ...);
 
 /* commands for the D4 protocol
 
@@ -195,7 +196,7 @@ static void printHexValues(const char *dir, const unsigned char *buf, int len)
 #if 0
    len = len > 30 ? 30 : len;
 #endif
-   fprintf(stderr,"%s\n",dir);
+   d4lib_msg("%s\n",dir);
    for (i = 0; i < len; i++)
      {
        if (isprint(buf[i]))
@@ -219,11 +220,11 @@ static void printHexValues(const char *dir, const unsigned char *buf, int len)
      {
        for (i = 0; i < len; i++)
 	 {
-	   fprintf(stderr,"%c",isprint(buf[i])||isspace(buf[i])?buf[i]:'*');
+	   d4lib_msg("%c",isprint(buf[i])||isspace(buf[i])?buf[i]:'*');
 	   if (buf[i] == ';' && i < len - 1)
-	     fprintf(stderr, "\n");
+	     d4lib_msg("\n");
 	 }
-       fprintf(stderr, "\n");
+       d4lib_msg("\n");
      }
    for (j = 0; j < blocks; j++)
      {
@@ -231,25 +232,25 @@ static void printHexValues(const char *dir, const unsigned char *buf, int len)
        int count = len;
        if (count > baseidx + 16)
 	 count =  baseidx + 16;
-       fprintf(stderr, "%4d: ", baseidx);
+       d4lib_msg("%4d: ", baseidx);
        for ( i = baseidx; i < count;i++)
 	 {
 	   if (i % 4 == 0)
-	     fprintf(stderr, " ");
-	   fprintf(stderr," %02x",buf[i]);
+	     d4lib_msg(" ");
+	   d4lib_msg(" %02x",buf[i]);
 	 }
        if (print_strings)
 	 {
-	   fprintf(stderr,"\n      ");
+	   d4lib_msg("\n      ");
 	   for ( i = baseidx; i < count;i++)
 	     {
 	       if (i % 4 == 0)
-		 fprintf(stderr, " ");
-	       fprintf(stderr,"  %c",
+		 d4lib_msg(" ");
+	       d4lib_msg("  %c",
 		       isprint(buf[i]) && !isspace(buf[i]) ? buf[i] : ' ');
 	     }
 	 }
-       fprintf(stderr, "\n");
+       d4lib_msg("\n");
      }
 }
 
@@ -257,8 +258,8 @@ int SafeWrite(int fd, const void *data, int len)
 {
   int status;
   int retries=30;
-  if (debugD4)
-    printHexValues("SafeWrite: ", data, len);
+
+  printHexValues("SafeWrite: ", data, len);
   do
     {
       status = write(fd, data, len);
@@ -305,12 +306,12 @@ static int printError(unsigned char errorNb)
    {
       if ( msg->result == errorNb )
       {
-         fprintf(stderr,"%s\n", msg->message);
+         d4lib_msg("%s\n", msg->message);
          return msg->errorClass;
       }
       msg++;
    }
-   fprintf(stderr,"Unknown IEEE 1284.4 error number %d\n",errorNb);
+   d4lib_msg("Unknown IEEE 1284.4 error number %d\n",errorNb);
    return 1; /* non recoverable error */
 }
 
@@ -330,22 +331,22 @@ static void printCmdType(unsigned char *cmd)
    {
       switch(cmd[6])
       {
-         case    0: fprintf(stderr,"--- Init           ---\n");break;
-         case    1: fprintf(stderr,"--- OpenChannel    ---\n");break;
-         case    2: fprintf(stderr,"--- CloseChannel   ---\n");break;
-         case    3: fprintf(stderr,"--- Credit         ---\n");break;
-         case    4: fprintf(stderr,"--- CreditRequest  ---\n");break;
-         case    8: fprintf(stderr,"--- Exit           ---\n");break;
-         case    9: fprintf(stderr,"--- GetSocketID    ---\n");break;
-         case   10: fprintf(stderr,"--- GetServiceName ---\n");break;
-         case 0x45: fprintf(stderr,"--- EnterD4Mode    ---\n");break;
-         case 0x7f: fprintf(stderr,"--- Error          ---\n");break;
-         default:   fprintf(stderr,"--- ?????????????? ---\n");break;
+         case    0: d4lib_msg("--- Init           ---\n");break;
+         case    1: d4lib_msg("--- OpenChannel    ---\n");break;
+         case    2: d4lib_msg("--- CloseChannel   ---\n");break;
+         case    3: d4lib_msg("--- Credit         ---\n");break;
+         case    4: d4lib_msg("--- CreditRequest  ---\n");break;
+         case    8: d4lib_msg("--- Exit           ---\n");break;
+         case    9: d4lib_msg("--- GetSocketID    ---\n");break;
+         case   10: d4lib_msg("--- GetServiceName ---\n");break;
+         case 0x45: d4lib_msg("--- EnterD4Mode    ---\n");break;
+         case 0x7f: d4lib_msg("--- Error          ---\n");break;
+         default:   d4lib_msg("--- ?????????????? ---\n");break;
       }
    }
    else
    {
-      fprintf(stderr,"--- Send Data      ---\n");
+      d4lib_msg("--- Send Data      ---\n");
    }
 }
 
@@ -399,10 +400,8 @@ static int writeCmd(int fd, unsigned char *cmd, int len)
       RESET_TIMER(ti,oti);
       if ( w < 0 )
       {
-         if ( debugD4 )
-         {
-	   perror("Write error");
-         }
+         d4lib_msg("Write error: %s", strerror(errno));
+
          i= -1;
          break;
       }
@@ -416,7 +415,7 @@ static int writeCmd(int fd, unsigned char *cmd, int len)
       gettimeofday(&end, NULL);
       dt = (end.tv_sec  - beg.tv_sec) * 1000000;
       dt += end.tv_usec - beg.tv_usec;
-      fprintf(stderr,"Write time %5.3f s\n",(double)dt/1000000);
+      d4lib_msg("Write time %5.3f s\n",(double)dt/1000000);
 # endif
    }
 
@@ -457,8 +456,7 @@ int readAnswer(int fd, unsigned char *buf, int len)
 
    gettimeofday(&beg, NULL);
 
-   if (debugD4)
-     fprintf(stderr, "length: %i\n", len);
+   d4lib_msg("length: %i\n", len);
    while ( total < len )
    {
       SET_TIMER(ti,oti, d4RdTimeout);
@@ -467,16 +465,16 @@ int readAnswer(int fd, unsigned char *buf, int len)
 	{
 	  if (first_read)
 	    {
-	      fprintf(stderr, "read: ");
+	      d4lib_msg("read: ");
 	      first_read = 0;
 	    }
 	  if (rd < 0)
 	    {
-	      fprintf(stderr, "%i %s\n", rd, errno != 0 ?strerror(errno) : "");
+	      d4lib_msg("%i %s\n", rd, errno != 0 ?strerror(errno) : "");
 	      first_read = 1;
 	    }
 	  else
-	    fprintf(stderr, "%i ", rd);
+	    d4lib_msg("%i ", rd);
 	}
       RESET_TIMER(ti,oti);
       if ( rd <= 0 )
@@ -486,8 +484,7 @@ int readAnswer(int fd, unsigned char *buf, int len)
          dt += (end.tv_usec - beg.tv_usec) / 1000;
          if ( dt > d4RdTimeout * 2 )
          {
-            if ( debugD4 )
-               fprintf(stderr,"Timeout 1 at readAnswer() rcv %d bytes\n",total);
+            d4lib_msg("Timeout 1 at readAnswer() rcv %d bytes\n",total);
             timeoutGot = 1;
             break;
          }
@@ -520,18 +517,17 @@ int readAnswer(int fd, unsigned char *buf, int len)
 #  if PTIME
       gettimeofday(&end, NULL);
 #  endif
-      fprintf(stderr, "total: %i\n", total);
+      d4lib_msg("total: %i\n", total);
       printHexValues("Recv: ",buf,total);
 #  if PTIME
       dt = (end.tv_sec  - beg.tv_sec) * 1000000;
       dt += end.tv_usec - beg.tv_usec;
-      fprintf(stderr,"Read time %5.3f s\n",(double)dt/1000000);
+      d4lib_msg("Read time %5.3f s\n",(double)dt/1000000);
 #  endif
    }
    if ( timeoutGot )
    {
-      if ( debugD4 )
-         fprintf(stderr,"Timeout 2 at readAnswer()\n");
+      d4lib_msg("Timeout 2 at readAnswer()\n");
       return -1;
    }
    return total;
@@ -553,15 +549,13 @@ static void _flushData(int fd)
    /* in case of error                                    */
    errno = 0;
 
-   if (debugD4)
-     fprintf(stderr, "flush data: length: %i\n", len);
+   d4lib_msg("flush data: length: %i\n", len);
    do
      {
        usleep(d4RdTimeout);
        SET_TIMER(ti,oti, d4RdTimeout);
        rd = read(fd, buf, len);
-       if (debugD4)
-	 fprintf(stderr, "flush: read: %i %s\n", rd,
+       d4lib_msg("flush: read: %i %s\n", rd,
 		 rd < 0 && errno != 0 ?strerror(errno) : "");
        RESET_TIMER(ti,oti);
        count--;
@@ -607,8 +601,7 @@ static int _readData(int fd, unsigned char *buf, int len)
          dt += (end.tv_usec - beg.tv_usec) / 1000;
          if ( dt > d4RdTimeout*3 )
          {
-            if ( debugD4 )
-               fprintf(stderr,"Timeout at _readData(), dt = %ld ms\n", dt);
+            d4lib_msg("Timeout at _readData(), dt = %ld ms\n", dt);
             return -1;
             break;
          }
@@ -620,14 +613,12 @@ static int _readData(int fd, unsigned char *buf, int len)
       }
    }
 
-   if ( debugD4 )
-      printHexValues("Recv: ",header,total);
+   printHexValues("Recv: ",header,total);
 
    if ( total == 6 )
    {
       toGet = (header[2] >> 8) + header[3] - 6;
-      if (debugD4)
-	fprintf(stderr, "toGet: %i\n", toGet);	
+      d4lib_msg("toGet: %i\n", toGet);
       if (toGet > len)
         return -1;
       total = 0;
@@ -644,8 +635,7 @@ static int _readData(int fd, unsigned char *buf, int len)
             dt += (end.tv_usec - beg.tv_usec) / 1000;
             if ( dt > d4RdTimeout*3 )
             {
-               if ( debugD4 )
-                  fprintf(stderr,"Timeout at _readData(), dt = %ld ms\n",dt);
+               d4lib_msg("Timeout at _readData(), dt = %ld ms\n",dt);
                return -1;
                break;
             }
@@ -656,8 +646,7 @@ static int _readData(int fd, unsigned char *buf, int len)
             total += rd;
          }
       }
-      if ( debugD4 )
-         printHexValues("Recv: ",buf,total);
+      printHexValues("Recv: ",buf,total);
       return total;
    }
 
@@ -692,8 +681,7 @@ static int sendReceiveCmd(int fd, unsigned char *cmd, int len, unsigned char *an
    else if ( rd < 0 )
    {
       /* interrupted write call */
-      if ( debugD4 )
-         fprintf(stderr,"interrupt received\n");
+      d4lib_msg("interrupt received\n");
       return -1;
    }
    else
@@ -1109,7 +1097,7 @@ int writeData(int fd, unsigned char socketID, const unsigned char *buf, int len,
    static int bLen   = 0;
    if ( debugD4 )
    {
-      fprintf(stderr,"--- Send Data      ---\n");
+      d4lib_msg("--- Send Data      ---\n");
       gettimeofday(&beg, NULL);
    }
    len += 6;
@@ -1139,7 +1127,7 @@ int writeData(int fd, unsigned char socketID, const unsigned char *buf, int len,
       RESET_TIMER(ti,oti);
       if ( ret == -1 )
       {
-         perror("write: ");
+         d4lib_msg("write: %s", strerror(errno));
       }
       else
       {
@@ -1156,7 +1144,7 @@ int writeData(int fd, unsigned char socketID, const unsigned char *buf, int len,
 # endif  
 //      printHexValues("Send: ", buf, wr);
 # if PTIME
-       fprintf(stderr,"Write time %5.3f s\n",(double)dt/1000000);
+       d4lib_msg("Write time %5.3f s\n",(double)dt/1000000);
 # endif
    }
 
@@ -1213,8 +1201,7 @@ int readData(int fd, unsigned char socketID, unsigned char *buf, int len)
 
 void flushData(int fd, unsigned char socketID)
 {
-  if (debugD4)
-    fprintf(stderr, "flushData %d\n", socketID);
+   d4lib_msg("flushData %d\n", socketID);
    /* give credit */
    if (socketID != (unsigned char) -1)
      {
@@ -1372,3 +1359,22 @@ int CreditReply(int fd, unsigned char socketID, int credit)
 
 #endif
 
+static int d4lib_msg(const char *fmt, ...)
+{
+	int ret;
+	va_list var_list;
+
+	if (!d4lib_debug_fn || (debugD4 == 0))
+		return -1;
+
+	va_start(var_list, fmt);
+	ret = d4lib_debug_fn(fmt, var_list);
+	va_end(var_list);
+
+	return ret;
+}
+
+void d4lib_set_debug_fn(int (*fn)(const char *fmt, va_list args))
+{
+	d4lib_debug_fn = fn;
+}

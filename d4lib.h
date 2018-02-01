@@ -19,6 +19,8 @@
 
 #define D4LIB_H
 
+#include <stdarg.h>
+
 extern int debugD4;   /* allow printout of debug informations */
 
 extern int EnterIEEE(int fd);
@@ -39,6 +41,7 @@ extern int readAnswer(int fd, unsigned char *buf, int len);
 extern void flushData(int fd, unsigned char socketID);
 extern void clearSndBuf(int fd);
 extern void setDebug(int debug);
+extern void d4lib_set_debug_fn(int (*fn)(const char *fmt, va_list args));
 
 extern int d4WrTimeout;
 extern int d4RdTimeout;
