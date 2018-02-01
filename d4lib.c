@@ -48,6 +48,7 @@
 #include <ctype.h>
 
 #include "d4lib.h"
+#include "util.h"
 
 
 #ifndef RDTIMEOUT
@@ -187,71 +188,11 @@ static errorMessage_t errorMessage[] =
 
 static void printHexValues(const char *dir, const unsigned char *buf, int len)
 {
-   int i, j;
-   int printable_count = 0;
-   int longest_printable_run = 0;
-   int current_printable_run = 0;
-   int print_strings = 0;
-   int blocks = (len + 15) / 16;
-#if 0
-   len = len > 30 ? 30 : len;
-#endif
-   d4lib_msg("%s\n",dir);
-   for (i = 0; i < len; i++)
-     {
-       if (isprint(buf[i]))
-	 {
-	   if (!isspace(buf[i]))
-	     printable_count++;
-	   current_printable_run++;
-	 }
-       else
-	 {
-	   if (current_printable_run > longest_printable_run)
-	     longest_printable_run = current_printable_run;
-	 }
-     }
-   if (current_printable_run > longest_printable_run)
-     longest_printable_run = current_printable_run;
-   if (longest_printable_run >= 8 ||
-       ((float) printable_count / (float) len > .75))
-     print_strings = 1;
-   if (print_strings)
-     {
-       for (i = 0; i < len; i++)
-	 {
-	   d4lib_msg("%c",isprint(buf[i])||isspace(buf[i])?buf[i]:'*');
-	   if (buf[i] == ';' && i < len - 1)
-	     d4lib_msg("\n");
-	 }
-       d4lib_msg("\n");
-     }
-   for (j = 0; j < blocks; j++)
-     {
-       int baseidx = j * 16;
-       int count = len;
-       if (count > baseidx + 16)
-	 count =  baseidx + 16;
-       d4lib_msg("%4d: ", baseidx);
-       for ( i = baseidx; i < count;i++)
-	 {
-	   if (i % 4 == 0)
-	     d4lib_msg(" ");
-	   d4lib_msg(" %02x",buf[i]);
-	 }
-       if (print_strings)
-	 {
-	   d4lib_msg("\n      ");
-	   for ( i = baseidx; i < count;i++)
-	     {
-	       if (i % 4 == 0)
-		 d4lib_msg(" ");
-	       d4lib_msg("  %c",
-		       isprint(buf[i]) && !isspace(buf[i]) ? buf[i] : ' ');
-	     }
-	 }
-       d4lib_msg("\n");
-     }
+  if (!debugD4)
+    return;
+
+  d4lib_msg("%s\n",dir);
+  hexdump(buf, len);
 }
 
 int SafeWrite(int fd, const void *data, int len)
