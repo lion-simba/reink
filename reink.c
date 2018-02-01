@@ -1122,48 +1122,46 @@ int parse_ink_result(const char* buf, int len)
 int get_tag(const char* source, int source_len, const char* tag, char* value, int max_value_len)
 {
 	int tag_len;
-	int pos;
-	int pos_end;
 	int val_len;
+	const char *semicol;
 
 	reink_dbg("=== get_tag ===\n");
 
 	reink_dbg("Searching for \"%s\" substring... ", tag);
 
 	tag_len = strlen(tag);
-	pos = 0;
-	while ((pos + tag_len < source_len) &&  (0 != strncmp(source+pos, tag, tag_len)))
-		pos++;
+	/* Can't use strstr(), since source is not NULL-terminated. */
+	while ((tag_len < source_len) && (strncmp(source, tag, tag_len))) {
+		source++;
+		source_len--;
+	}
 
-	if (pos + tag_len == source_len)
-	{
+	if (tag_len == source_len) {
 		reink_dbg("NOT FOUND.\n");
 		return -1;
 	}
 
-	reink_dbg("FOUND, pos=%d.\n", pos);
+	reink_dbg("FOUND\n");
 
-	pos += tag_len;
+	source += tag_len;
 
 	reink_dbg("Searching for \";\" character... ");
-	pos_end = pos;
-	while ((pos_end < source_len) && (source[pos_end] != ';'))
-		pos_end++;
-	if (pos_end  == source_len)
-	{
+
+	semicol = memchr(source, ';', source_len);
+	if (!semicol) {
 		reink_dbg("NOT FOUND.\n");
 		return -1;
 	}
-	reink_dbg("FOUND, pos_end=%d.\n", pos_end);
 
-	val_len = pos_end - pos;
-	if (val_len+1 > max_value_len)
-	{
+	val_len = (intptr_t)(semicol - source);
+	reink_dbg("FOUND, len=%d.\n", val_len);
+
+	if (val_len > max_value_len - 1) {
 		reink_dbg("Value(+'\\0') too long (%d) for given buffer (%d).\n", val_len+1, max_value_len);
 		return 1;
 	}
 
-	memcpy(value, source + pos, val_len);
+	strncpy(value, source, val_len);
 	value[val_len] = '\0';
 	reink_dbg("Tag value:\"%s\".\n", value);
 
