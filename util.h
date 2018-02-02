@@ -24,6 +24,8 @@
 #include <stdarg.h>
 #include <string.h>
 
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
+
 void hexdump(const void *memory, size_t length);
 int reink_do_log(const char *fmt, va_list args);
 int reink_log(const char *fmt, ...);
