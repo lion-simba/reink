@@ -148,7 +148,18 @@ static const struct printer_info printers[] = {
 		.wastemap = {
 			.len = 				4,
 			.addr = 			{0x1c, 0x1d, 0x1e, 0x1f},
-		}
+		},
+	}, {
+		.name = "Epson WF-2760",
+		.model_name = "WF-2760 Series",
+		.model_code = {0x37, 0x06},
+		.twobyte_addresses = 1,
+		.inkmap = {
+			.mask = 0,
+		},
+		.wastemap = {
+			.len = 0,
+		},
 	},
 };
 
