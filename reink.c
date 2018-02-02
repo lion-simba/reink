@@ -129,6 +129,7 @@
 #include <stdlib.h>	//getenv
 #include <unistd.h>	//getopt
 #include <stdio.h>	//printf, stdin, stderr, stdout
+#include <stdint.h>
 #include <string.h>	//strdup
 
 #include <sys/types.h>	//fileIO
@@ -304,7 +305,8 @@ int get_tag(const char* source, int source_len, const char* tag, char* value, in
    On success returns 0.
    On fail returns -1.
 */
-int parse_ink_result(const char* buf, int len);
+int parse_v1_status_report(const uint8_t *buf, size_t len);
+int parse_v2_status_report(const uint8_t *buf, size_t len);
 /* --------------- */
 
 /* === main workers === */
@@ -648,6 +650,7 @@ int do_ink_levels(const char* raw_device, unsigned int pmodel)
 
 	char buf[INPUT_BUF_LEN]; //buffer for input data
 	int readed; //number of readed bytes
+	int (*do_parse_status_report)(const uint8_t* buf, size_t len);
 
 	reink_dbg("=== do_ink_levels ===\n");
 
@@ -664,7 +667,12 @@ int do_ink_levels(const char* raw_device, unsigned int pmodel)
 	DBG_OK();
 
 	reink_dbg("Parsing result... ");
-	if (parse_ink_result(buf, readed))
+	if (!strncmp(buf, "@BDC ST2", 8))
+		do_parse_status_report = parse_v2_status_report;
+	else
+		do_parse_status_report = parse_v1_status_report;
+
+	if (do_parse_status_report(buf, readed))
 	{
 		reink_log("FAIL.\n");
 		return 1;
@@ -1084,7 +1092,7 @@ then make another report with command:\n\
 /////////////////////////////////////////////////////////////////////////////////
 //
 
-int parse_ink_result(const char* buf, int len)
+int parse_v1_status_report(const uint8_t *buf, size_t len)
 {
 	char ink_info[20];
 	char ink_val[3];
@@ -1117,6 +1125,126 @@ int parse_ink_result(const char* buf, int len)
 	}
 
 	reink_dbg("^^^ parse_ink_result ^^^\n");
+
+	return 0;
+}
+
+static const char *ink_color_name(size_t idx)
+{
+	static const char *color_names[] = {
+		[0x00] = "Black",
+		[0x01] = "Photo Black",
+		"Unknown",
+		[0x03] = "Cyan",
+		[0x04] = "Magenta",
+		[0x05] = "Yellow",
+		[0x06] = "Light Cyan",
+		[0x07] = "Light Magenta",
+		"Unknown",
+		"Unknown",
+		[0x0a] = "Light Black",
+		[0x0b] = "Matte Black",
+		[0x0c] = "Red",
+		[0x0d] = "Blue",
+		[0x0e] = "Gloss Optimizer",
+		[0x0f] = "Light Light Black",
+		[0x10] = "Orange",
+	};
+
+	return (idx > ARRAY_SIZE(color_names)) ? "ERROR" : color_names[idx];
+}
+
+static const char *ink_aux_color_name(size_t idx)
+{
+	static const char *aux_color_names[] = {
+		[0x00] = "Black",
+		[0x01] = "Cyan",
+		[0x02] = "Magenta",
+		[0x03] = "Yellow",
+		[0x04] = "Light Cyan",
+		[0x05] = "Light Magenta",
+		"Unknown",
+		"Unknown",
+		[0x09] = "Red",
+		[0x0a] = "Blue",
+		"Unknown",
+		"Unknown",
+		[0x0d] = "Orange",
+		"Unknown",
+		"Unknown",
+	};
+
+	return (idx > ARRAY_SIZE(aux_color_names)) ? "ERROR"
+		: aux_color_names[idx];
+}
+
+static int report_inks_levels_v2(const uint8_t* buf, size_t len)
+{
+	uint8_t entry_size, num_colors, i, idx_name, idx_aux, level;
+
+	entry_size = buf[0];
+	if (entry_size != 3) {
+		reink_log("Expected 3-byte ink level entry, got %d instead\n",
+			  entry_size);
+		return -1;
+	}
+
+	num_colors = (len - 1) / entry_size;
+	if ((len - 1) % entry_size)
+		reink_log("Ink level entries not multiple of message size\n");
+
+	buf ++;
+	reink_log("Reported ink levels:\n");
+	for (i = 0; i < num_colors; i++) {
+		idx_name = buf[0];
+		idx_aux = buf[1];
+		level = buf[2];
+
+		/* The funky format string is just for aligning the output. */
+		reink_log("\t%-16saux - %-16s%4d\%\n", ink_color_name(idx_name),
+			  ink_aux_color_name(idx_aux), level);
+
+		buf += entry_size;
+	}
+}
+
+int parse_v2_status_report(const uint8_t* buf, size_t len)
+{
+	uint8_t msg_type, msg_size;
+	const uint8_t *msg;
+	const uint8_t num_pork_bytes = 12;
+
+	if (len < num_pork_bytes)
+		return -1;
+
+	len -= num_pork_bytes;
+	buf += num_pork_bytes;
+
+	while (len) {
+		msg_type = buf[0];
+		msg_size = buf[1];
+		msg = buf + 2;
+
+		if ((msg_size + 2) > len) {
+			reink_log("Malformed status report\n");
+			return -1;
+		}
+
+		switch (msg_type) {
+		case 0x01:
+			reink_dbg("Printer status code: %x\n", msg[0]);
+			break;
+		case 0x0f:
+			report_inks_levels_v2(msg, msg_size);
+			break;
+		default:
+			reink_dbg("Unknown report type %x in status message\n",
+				  msg_type);
+		}
+
+		buf += msg_size + 2;
+		len -= msg_size + 2;
+	}
 
 	return 0;
 }
