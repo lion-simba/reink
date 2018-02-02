@@ -230,6 +230,7 @@ int close_channel(int fd, int socket_id);
     On fail prints various error messges to stderr and returns -1.
 */
 int printer_transact(int fd, int socket_id, const char* buf_send, int send_len, char* buf_recv, int* recv_len);
+int printer_request_status(int fd, int socket_id, char *buf, int *len);
 /* -------------------------------- */
 
 /* === information === */
@@ -658,7 +659,7 @@ int do_ink_levels(const char* raw_device, unsigned int pmodel)
 
 	reink_dbg("Everything seems to be ready. :) Let's get ink level. Executing \"st\" command... ");
 	readed = INPUT_BUF_LEN;
-	if (printer_transact(device, ctrl_socket, "st\1\0\1", 5, buf, &readed))
+	if (printer_request_status(device, ctrl_socket, buf, &readed))
 		return 1;
 	DBG_OK();
 
@@ -973,7 +974,7 @@ int do_make_report(const char* raw_device, unsigned char model_code[])
 
 	//reply to "st" command
 	readed = INPUT_BUF_LEN;
-	if (printer_transact(fd, socket2, "st\1\0\1", 5, buf, &readed) < 0)
+	if (printer_request_status(fd, socket2, buf, &readed) < 0)
 	{
 		close_channel(fd, socket2);
 		printer_disconnect(fd);
@@ -1397,7 +1398,10 @@ int printer_transact(int fd, int socket_id, const char* buf_send, int send_len, 
 	return 0;
 }
 
-
+int printer_request_status(int fd, int socket_id, char *buf, int *len)
+{
+	return printer_transact(fd, socket_id, "st\1\0\1", 5, buf, len);
+}
 
 /////////////////////////////////////////////////////////////////////////////////
 //	EPSON FACTORY COMMANDS
