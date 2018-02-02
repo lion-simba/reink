@@ -943,7 +943,7 @@ int do_make_report(const char* raw_device, unsigned char model_code[])
 	//enabling debug info
 	setDebug(1);
 	ri_debug=1;
-	unknown_printer = printers[PM_UNKNOWN];
+	unknown_printer = *db_locate_printer_by_model("Unknown printer");
 	printer->info = &unknown_printer;
 
 	//raw_device (r/w status)
@@ -1301,13 +1301,13 @@ const struct printer_info *printer_model(const char* raw_device)
 {
 	unsigned int i;
 	struct printer printer;
-	const struct printer_info *unknown = &printers[PM_UNKNOWN];
-
+	const struct printer_info *unknown;
 	char buf[INPUT_BUF_LEN]; //buffer for input data
 	int readed; //number of readed bytes
-
 	char strModel[MAX_MODEL_LEN];
 	struct ieee1284_socket d4_sock;
+
+	unknown = db_locate_printer_by_model("Unknown_printer");
 
 	reink_dbg("=== printer_model ===\n");
 
@@ -1331,15 +1331,7 @@ const struct printer_info *printer_model(const char* raw_device)
 	}
 	DBG_OK();
 
-	for(i = 0; i < printers_count; i++)
-	{
-		if (!strcmp(strModel, printers[i].model_name))
-		{
-			reink_dbg("Printer \"%s\".\n", printers[i].name);
-			printer.info = &printers[i];
-			break;
-		}
-	}
+	printer.info = db_locate_printer_by_model(strModel);
 	
 	if (close_channel(&d4_sock) < 0)
 		return printer.info;

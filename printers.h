@@ -17,15 +17,6 @@
  
 #include <stdbool.h>
 
-//printer models 
-#define PM_UNKNOWN		0	//Unknown model
-#define PM_SP790		1	//EPSON Stylus Photo 790
-#define PM_SC580		2	//EPSON Stylus Color 580
-#define PM_SP1290		3	//EPSON Stylus Photo 1290
-#define PM_SC680		4	//EPSON Stylus Color 680
-#define PM_SPT50		5	//EPSON Stylus Photo T50
-#define PM_SPP50		6	//EPSON Stylus Photo P50
-
 //ink counters EEPROM map
 #define INK_BLACK			0x01
 #define INK_CYAN			0x02
@@ -33,6 +24,7 @@
 #define INK_YELLOW			0x08
 #define INK_LIGHTCYAN		0x10
 #define INK_LIGHTMAGENTA	0x20
+
 typedef struct _ink_map {
 	unsigned int  mask; //bit sum of INK_ defines of available inks	
 	unsigned char black[4];
@@ -61,7 +53,5 @@ typedef struct printer_info {
 	waste_map_t wastemap;
 } printer_t;
 
-extern printer_t printers[];
-extern const unsigned int printers_count;
-
+const struct printer_info *db_locate_printer_by_model(const char *model);
 bool is_unknown_printer(const struct printer_info *info);
