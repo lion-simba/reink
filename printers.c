@@ -18,6 +18,8 @@
 
 #include "printers.h"
 
+#include <string.h>
+
 printer_t printers[] = {
 	[PM_UNKNOWN] = {
 		.name = "Unknown printer",
@@ -155,3 +157,8 @@ printer_t printers[] = {
 };
 
 const unsigned int printers_count = sizeof(printers) / sizeof(printers[0]);
+
+bool is_unknown_printer(const struct printer_info *printer_info)
+{
+	return !strcmp(printer_info->model_name, "Unknown printer");
+}

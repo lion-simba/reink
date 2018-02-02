@@ -15,7 +15,8 @@
  * along with ReInk. If not, see <http://www.gnu.org/licenses/>.
  */
  
- 
+#include <stdbool.h>
+
 //printer models 
 #define PM_UNKNOWN		0	//Unknown model
 #define PM_SP790		1	//EPSON Stylus Photo 790
@@ -51,7 +52,7 @@ typedef struct _waste_map {
 //the printer
 #define MAX_NAME_LEN	100
 #define MAX_MODEL_LEN	100
-typedef struct _printer_s {
+typedef struct printer_info {
 	unsigned char name[MAX_NAME_LEN];			//printer textual name
 	unsigned char model_name[MAX_MODEL_LEN];	//printer model name as returned by printer itself
 	unsigned char model_code[2];	//"password" for this printer
@@ -62,3 +63,5 @@ typedef struct _printer_s {
 
 extern printer_t printers[];
 extern const unsigned int printers_count;
+
+bool is_unknown_printer(const struct printer_info *info);
