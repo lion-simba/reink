@@ -227,7 +227,7 @@ int printer_request_status(struct ieee1284_socket *socket, char *buf, int *len);
 /* -------------------------------- */
 
 /* === information === */
-const struct printer_info *printer_model(const char* raw_device);
+const struct printer_info *printer_model(struct ieee1284_socket *d4_sock);
 /* ------------------- */
 
 /* === EPSON factory commands === */
@@ -302,20 +302,20 @@ int parse_v2_status_report(const uint8_t *buf, size_t len);
 /* --------------- */
 
 /* === main workers === */
-int do_ink_levels(const char *raw_device, struct printer *printer);
-int do_ink_reset(const char *raw_device, struct printer *printer,
-		 unsigned char ink_type);
-int do_eeprom_dump(const char *raw_device, struct printer *printer,
+int do_ink_levels(struct ieee1284_socket *d4_sock);
+int do_ink_reset(struct ieee1284_socket *d4_sock, unsigned char ink_type);
+int do_eeprom_dump(struct ieee1284_socket *d4_sock,
 		   unsigned short int start_addr, unsigned short int end_addr);
-int do_eeprom_write(const char *raw_device, struct printer *printer,
+int do_eeprom_write(struct ieee1284_socket *d4_sock,
 		    unsigned short int addr, unsigned char data);
-int do_make_report(const char *raw_device, unsigned char model_code[]);
-int do_waste_reset(const char *raw_device, struct printer *printer);
+int do_make_report(struct ieee1284_socket *ctrl_sock,
+		   unsigned char model_code[], const char *raw_device);
+int do_waste_reset(struct ieee1284_socket *d4_sock);
 /* -------------------- */
 
 int main(int argc, char** argv)
 {
-	int opt; 					//current option
+	int opt, ret; 					//current option
 	int command = CMD_NONE; 			//command to do
 
 	char* raw_device = NULL;	//-r option argument
@@ -338,6 +338,7 @@ int main(int argc, char** argv)
 	char onebyte[3];		//holds one-byte hex value ("0A" for example), used in conversion
 
 	char* str_reink_debug = NULL;	//the value of REINK_DEBUG environmental variable
+	struct ieee1284_socket ctrl_sock;
 	struct printer printer = {
 		.conn.fd = -1,
 	};
@@ -554,43 +555,57 @@ int main(int argc, char** argv)
 	}
 	//end of options parsing
 
-	//CMD_REPORT is a special case
-	if (command == CMD_REPORT)
-		return do_make_report(raw_device, model_code);
+
+	if (printer_connect(&printer, raw_device) < 0)
+		return 1;
+
+	if (open_channel(&ctrl_sock, &printer, "EPSON-CTRL") < 0)
+		return 1;
 
 	//identifing printer
-	printer.info = printer_model(raw_device);
-	if (is_unknown_printer(printer.info)) {
+	printer.info = printer_model(&ctrl_sock);
+
+	if (is_unknown_printer(printer.info) && (command != CMD_REPORT)) {
 		reink_log("Unknown printer. Wrong device file?\n");
-		return 1;
+		command = CMD_NONE;
 	}
 
 	switch (command)
 	{
 	case CMD_GETINK:
-		return do_ink_levels(raw_device, &printer);
+		ret = do_ink_levels(&ctrl_sock);
 		break;
 
 	case CMD_DUMPEEPROM:
-		return do_eeprom_dump(raw_device, &printer, addr_s, addr_e);
+		ret = do_eeprom_dump(&ctrl_sock, addr_s, addr_e);
 		break;
 
 	case CMD_WRITEEEPROM:
-		return do_eeprom_write(raw_device, &printer, write_addr, write_byte);
+		ret = do_eeprom_write(&ctrl_sock, write_addr, write_byte);
 		break;
 
 	case CMD_ZEROINK:
-		return do_ink_reset(raw_device, &printer, ink_type);
+		ret = do_ink_reset(&ctrl_sock, ink_type);
 		break;
 		
 	case CMD_ZEROWASTE:
-		return do_waste_reset(raw_device, &printer);
+		ret = do_waste_reset(&ctrl_sock);
+		break;
+
+	case CMD_REPORT:
+		ret = do_make_report(&ctrl_sock, model_code, raw_device);
 		break;
 
 	default:
 		reink_log("Unknown command.\n");
-		return 1;
+		ret = 1;
 	}
+
+	if (close_channel(&ctrl_sock) < 0)
+		return 1;
+
+	if (printer_disconnect(&printer) < 0)
+		return 1;
 
 	return 0;
 }
@@ -639,24 +654,16 @@ Basic usage is:\n\
 /////////////////////////////////////////////////////////////////////////////////
 //
 
-int do_ink_levels(const char* raw_device, struct printer *printer)
+int do_ink_levels(struct ieee1284_socket *d4_sock)
 {
 	char buf[INPUT_BUF_LEN]; //buffer for input data
 	int readed; //number of readed bytes
 	int (*do_parse_status_report)(const uint8_t* buf, size_t len);
-	struct ieee1284_socket d4_sock;
 
 	reink_dbg("=== do_ink_levels ===\n");
-
-	if (printer_connect(printer, raw_device) < 0)
-		return 1;
-
-	if (open_channel(&d4_sock, printer, "EPSON-CTRL") < 0)
-		return 1;
-
 	reink_dbg("Everything seems to be ready. :) Let's get ink level. Executing \"st\" command... ");
 	readed = INPUT_BUF_LEN;
-	if (printer_request_status(&d4_sock, buf, &readed))
+	if (printer_request_status(d4_sock, buf, &readed))
 		return 1;
 	DBG_OK();
 
@@ -673,69 +680,53 @@ int do_ink_levels(const char* raw_device, struct printer *printer)
 	}
 	DBG_OK();
 
-	if (close_channel(&d4_sock) < 0)
-		return 1;
-
-	if (printer_disconnect(printer) < 0)
-		return 1;
-
 	reink_dbg("^^^ do_ink_levels ^^^\n");
 	return 0;
 }
 
-int do_ink_reset(const char *raw_device, struct printer *printer,
-		 unsigned char ink_type)
+int do_ink_reset(struct ieee1284_socket *d4_sock, unsigned char ink_type)
 {
 	int i;
 	unsigned char cur_ink;
 	const unsigned char *cur_addr;
-	struct ieee1284_socket d4_sock;
+	const ink_map_t *inkmap = &d4_sock->parent->info->inkmap;
 
 	reink_dbg("=== do_ink_reset ===\n");
-	
-	if (is_unknown_printer(printer->info))
-		return 1;
-
-	if (printer_connect(printer, raw_device) < 0)
-		return 1;
-
-	if (open_channel(&d4_sock, printer, "EPSON-CTRL") < 0)
-		return 1;
 
 	for(cur_ink = 1; cur_ink != 0x80; cur_ink <<= 1)
 	{
 		if (!(cur_ink & ink_type))
 			continue;
 		
-		if (!(printer->info->inkmap.mask & cur_ink))
+		if (!(inkmap->mask & cur_ink))
 		{
 			if (ink_type == 0xFF) //reset all inks
 				continue;
 				
 			reink_log("Printer \"%s\" doesn't have ink bit %d.\n",
-				  printer->info->name, cur_ink);
+				  d4_sock->parent->info->name, cur_ink);
 			return 1;
 		}
 		
 		switch(cur_ink)
 		{
 		case INK_BLACK:
-			cur_addr = printer->info->inkmap.black;
+			cur_addr = inkmap->black;
 			break;
 		case INK_CYAN:
-			cur_addr = printer->info->inkmap.cyan;
+			cur_addr = inkmap->cyan;
 			break;
 		case INK_MAGENTA:
-			cur_addr = printer->info->inkmap.magenta;
+			cur_addr = inkmap->magenta;
 			break;
 		case INK_YELLOW:
-			cur_addr = printer->info->inkmap.yellow;
+			cur_addr = inkmap->yellow;
 			break;
 		case INK_LIGHTCYAN:
-			cur_addr = printer->info->inkmap.lightcyan;
+			cur_addr = inkmap->lightcyan;
 			break;
 		case INK_LIGHTMAGENTA:
-			cur_addr = printer->info->inkmap.lightmagenta;
+			cur_addr = inkmap->lightmagenta;
 			break;
 		default:
 			reink_log("Unknown ink bit %d.\n", cur_ink);
@@ -744,47 +735,31 @@ int do_ink_reset(const char *raw_device, struct printer *printer,
 		
 		reink_dbg("Resetting ink bit %d... ", cur_ink);
 		for (i=0;i<4;i++)
-			if (write_eeprom_address(&d4_sock, cur_addr[i], 0x00)) {
+			if (write_eeprom_address(d4_sock, cur_addr[i], 0x00)) {
 				reink_log("Can't write to eeprom.\n");
 				return 1;
 			}
 		DBG_OK();
 	}
-	
-	if (close_channel(&d4_sock) < 0)
-		return 1;
-
-	if (printer_disconnect(printer) < 0)
-		return 1;
 
 	reink_dbg("^^^ do_ink_reset ^^^\n");
 
 	return 0;
 }
 
-int do_eeprom_dump(const char *raw_device, struct printer *printer,
+int do_eeprom_dump(struct ieee1284_socket *d4_sock,
 		   unsigned short int start_addr, unsigned short int end_addr)
 {
 	unsigned char data; //eeprom data (one byte)
 	unsigned short int cur_addr; //current address
 	int i;
-	struct ieee1284_socket d4_sock;
 
 	reink_dbg("=== do_eeprom_dump ===\n");
 
-	if (is_unknown_printer(printer->info))
-		return 1;
-
-	if (printer_connect(printer, raw_device) < 0)
-		return 1;
-
-	if (open_channel(&d4_sock, printer, "EPSON-CTRL") < 0)
-		return 1;
-
-	if (!printer->info->twobyte_addresses && (end_addr & 0xFF00))
+	if (!d4_sock->parent->info->twobyte_addresses && (end_addr & 0xFF00))
 	{
 		reink_log("Printer \"%s\" doesn't support two-byte addresses, I will use lower byte only.\n",
-			  printer->info->name);
+			  d4_sock->parent->info->name);
 		start_addr &= 0xFF;
 		end_addr &= 0xFF;
 	}
@@ -793,7 +768,7 @@ int do_eeprom_dump(const char *raw_device, struct printer *printer,
 
 	for (cur_addr = start_addr; (cur_addr <= end_addr) && (cur_addr >= start_addr); cur_addr++)
 	{
-		if (read_eeprom_address(&d4_sock, cur_addr, &data)) {
+		if (read_eeprom_address(d4_sock, cur_addr, &data)) {
 			reink_log("Fail to read EEPROM data from address %x.\n", cur_addr);
 			return 1;
 		}
@@ -804,35 +779,18 @@ int do_eeprom_dump(const char *raw_device, struct printer *printer,
 
 	DBG_OK();
 
-	if (close_channel(&d4_sock) < 0)
-		return 1;
-
-	if (printer_disconnect(printer) < 0)
-		return 1;
-
 	reink_dbg("^^^ do_eeprom_dump ^^^\n");
 	return 0;
 }
 
-int do_eeprom_write(const char *raw_device, struct printer *printer,
+int do_eeprom_write(struct ieee1284_socket *d4_sock,
 		    unsigned short int addr, unsigned char data)
 {
 	unsigned char readed_data; //verification data
-	struct ieee1284_socket d4_sock;
 
 	reink_dbg("=== do_eeprom_write ===\n");
-
-	if (is_unknown_printer(printer->info))
-		return 1;
-
-	if (printer_connect(printer, raw_device) < 0)
-		return 1;
-
-	if (open_channel(&d4_sock, printer, "EPSON-CTRL") < 0)
-		return 1;
-
 	reink_dbg("Let's write %#x to EEPROM address %#x...\n", data, addr);
-	if (write_eeprom_address(&d4_sock, addr, data))
+	if (write_eeprom_address(d4_sock, addr, data))
 	{
 		reink_log("Fail to write EEPROM data to address %#x.\n", addr);
 		return 1;
@@ -840,7 +798,7 @@ int do_eeprom_write(const char *raw_device, struct printer *printer,
 	DBG_OK();
 
 	reink_dbg("Verify by reading that byte... ");
-	if (read_eeprom_address(&d4_sock, addr, &readed_data))
+	if (read_eeprom_address(d4_sock, addr, &readed_data))
 	{
 		reink_log("Fail to subsequent read from EEPROM address %#x.\n", addr);
 		return 1;
@@ -853,46 +811,23 @@ int do_eeprom_write(const char *raw_device, struct printer *printer,
 	}
 	DBG_OK();
 
-	if (close_channel(&d4_sock) < 0)
-		return 1;
-
-	if (printer_disconnect(printer) < 0)
-		return 1;
-
 	reink_dbg("^^^ do_eeprom_write ^^^\n");
 	return 0;
 }
 
-int do_waste_reset(const char *raw_device, struct printer *printer)
+int do_waste_reset(struct ieee1284_socket *d4_sock)
 {
 	int i;
-	struct ieee1284_socket d4_sock;
+	const waste_map_t *wastemap = &d4_sock->parent->info->wastemap;
 
 	reink_dbg("=== do_waste_reset ===\n");
-
-	if (is_unknown_printer(printer->info))
-		return 1;
-
-	if (printer_connect(printer, raw_device) < 0)
-		return 1;
-
-	if (open_channel(&d4_sock, printer, "EPSON-CTRL") < 0)
-		return 1;
-
 	reink_dbg("Resetting... ");;
-	for (i=0; i < printer->info->wastemap.len; i++)
-		if (write_eeprom_address(&d4_sock,
-					 printer->info->wastemap.addr[i], 0x00)) {
+	for (i=0; i < wastemap->len; i++)
+		if (write_eeprom_address(d4_sock, wastemap->addr[i], 0x00)) {
 			reink_log("Can't write to eeprom.\n");
 			return 1;
 		}
 	DBG_OK();
-
-	if (close_channel(&d4_sock) < 0)
-		return 1;
-
-	if (printer_disconnect(printer) < 0)
-		return 1;
 
 	reink_dbg("^^^ do_waste_reset ^^^\n");
 
@@ -907,7 +842,8 @@ What we need to know about unknown printer?
 4) cmds support: one-byte address read/write, two-byte address read/write
 5) eeprom map (at least addresses with inks usage)
 */
-int do_make_report(const char* raw_device, unsigned char model_code[])
+int do_make_report(struct ieee1284_socket *ctrl_sock,
+		   unsigned char model_code[], const char *raw_device)
 {
 	struct utsname linux_info; //uname -a reply
 	int have_model_code = 0; //do we have model code?
@@ -918,9 +854,8 @@ int do_make_report(const char* raw_device, unsigned char model_code[])
 	int original_stderr;
 	int original_debug = ri_debug; //original value of ri_debug
 	struct printer_info unknown_printer;
-	struct printer prt;
-	struct printer *printer = &prt;
-	struct ieee1284_socket d4_sock, data_sock;
+	struct printer *printer = ctrl_sock->parent;
+	struct ieee1284_socket data_sock;
 
 	printf("ReInk v%d.%d test report.\n", REINK_VERSION_MAJOR, REINK_VERSION_MINOR);
 
@@ -946,39 +881,19 @@ int do_make_report(const char* raw_device, unsigned char model_code[])
 	unknown_printer = *db_locate_printer_by_model("Unknown printer");
 	printer->info = &unknown_printer;
 
-	//raw_device (r/w status)
-	//can enter in ieee1284.4 mode?
-	if (printer_connect(printer, raw_device) < 0)
-		return 0;
-
-	//opening EPSON-CTRL
-	if (open_channel(&d4_sock, printer, "EPSON-CTRL") < 0)
-	{
-		printer_disconnect(printer);
-		return 0;
-	}
-
 	//opening EPSON-DATA (just try to open - then close)
 	if (open_channel(&data_sock, printer, "EPSON-DATA") >= 0)
 		close_channel(&data_sock); //no need anymore
 
 	//reply to "di" command
 	readed = INPUT_BUF_LEN;
-	if (printer_transact(&d4_sock, "di\1\0\1", 5, buf, &readed) < 0)
-	{
-		close_channel(&d4_sock);
-		printer_disconnect(printer);
+	if (printer_transact(ctrl_sock, "di\1\0\1", 5, buf, &readed) < 0)
 		return 0;
-	}
 
 	//reply to "st" command
 	readed = INPUT_BUF_LEN;
-	if (printer_request_status(&d4_sock, buf, &readed) < 0)
-	{
-		close_channel(&d4_sock);
-		printer_disconnect(printer);
+	if (printer_request_status(ctrl_sock, buf, &readed) < 0)
 		return 0;
-	}
 
 	//init unknown printer
 	unknown_printer.model_code[0] = model_code[0];
@@ -999,7 +914,7 @@ int do_make_report(const char* raw_device, unsigned char model_code[])
 	while (unknown_printer.model_code[0] != 0xFF && !have_model_code)
 	{
 		//try to read from eeprom (address 00)
-		if (read_eeprom_address(&d4_sock, 0x00, &data) == 0)
+		if (read_eeprom_address(ctrl_sock, 0x00, &data) == 0)
 		{
 			printf("We found model code: 0x%02X 0x%02X\n", unknown_printer.model_code[0], unknown_printer.model_code[1]);
 			have_model_code = 1;
@@ -1018,11 +933,7 @@ int do_make_report(const char* raw_device, unsigned char model_code[])
 	}
 
 	if (!have_model_code)
-	{
-		close_channel(&d4_sock);
-		printer_disconnect(printer);
 		return 0;
-	}
 
 	//on success - dump eeprom 0x00-0xFF
 
@@ -1030,12 +941,8 @@ int do_make_report(const char* raw_device, unsigned char model_code[])
 	setDebug(1);
 	ri_debug = 1;
 
-	if (read_eeprom_address(&d4_sock, 0x00, &data) != 0)
-	{
-		close_channel(&d4_sock);
-		printer_disconnect(printer);
+	if (read_eeprom_address(ctrl_sock, 0x00, &data) != 0)
 		return 0;
-	}
 
 	//disabling debug before dump
 	setDebug(0);
@@ -1045,12 +952,9 @@ int do_make_report(const char* raw_device, unsigned char model_code[])
 	printf("\nEEPROM DUMP:\n");
 	for (caddr = 0; caddr <= 0xFF; caddr++)
 	{
-		if (read_eeprom_address(&d4_sock, caddr, &data) < 0)
-		{
-			close_channel(&d4_sock);
-			printer_disconnect(printer);
+		if (read_eeprom_address(ctrl_sock, caddr, &data) < 0)
 			return 0;
-		}
+
 		printf("0x%02X = 0x%02X\n", caddr, data);
 	}
 
@@ -1072,9 +976,6 @@ int do_make_report(const char* raw_device, unsigned char model_code[])
 	{
 		reink_log("Now send me both reports.\n");
 	}
-
-	close_channel(&d4_sock);
-	printer_disconnect(printer);
 
 	return 0;
 }
@@ -1297,7 +1198,7 @@ int get_tag(const char* source, int source_len, const char* tag, char* value, in
 /////////////////////////////////////////////////////////////////////////////////
 //
 
-const struct printer_info *printer_model(const char* raw_device)
+const struct printer_info *printer_model(struct ieee1284_socket *d4_sock)
 {
 	unsigned int i;
 	struct printer printer;
@@ -1305,21 +1206,14 @@ const struct printer_info *printer_model(const char* raw_device)
 	char buf[INPUT_BUF_LEN]; //buffer for input data
 	int readed; //number of readed bytes
 	char strModel[MAX_MODEL_LEN];
-	struct ieee1284_socket d4_sock;
 
 	unknown = db_locate_printer_by_model("Unknown_printer");
 
 	reink_dbg("=== printer_model ===\n");
 
-	if (printer_connect(&printer, raw_device) < 0)
-		return unknown;
-
-	if (open_channel(&d4_sock, &printer, "EPSON-CTRL") < 0)
-		return unknown;
-
 	reink_dbg("Let's get printer info. Executing \"di\" command... ");
 	readed = INPUT_BUF_LEN;
-	if (printer_transact(&d4_sock, "di\1\0\1", 5, buf, &readed))
+	if (printer_transact(d4_sock, "di\1\0\1", 5, buf, &readed))
 		return unknown;
 	DBG_OK();
 
@@ -1333,12 +1227,6 @@ const struct printer_info *printer_model(const char* raw_device)
 
 	printer.info = db_locate_printer_by_model(strModel);
 	
-	if (close_channel(&d4_sock) < 0)
-		return printer.info;
-
-	if (printer_disconnect(&printer) < 0)
-		return printer.info;
-
 	reink_dbg("^^^ printer_model ^^^\n");
 	return printer.info;
 }
