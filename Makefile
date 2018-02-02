@@ -1,4 +1,4 @@
-CFLAGS= -c
+CFLAGS= -c -g
 
 all: reink
 
