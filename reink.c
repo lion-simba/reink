@@ -750,9 +750,10 @@ int do_ink_reset(struct ieee1284_socket *d4_sock, unsigned char ink_type)
 int do_eeprom_dump(struct ieee1284_socket *d4_sock,
 		   unsigned short int start_addr, unsigned short int end_addr)
 {
+	size_t i, start_offset;
+	uint8_t eebuf[256];
 	unsigned char data; //eeprom data (one byte)
 	unsigned short int cur_addr; //current address
-	int i;
 
 	reink_dbg("=== do_eeprom_dump ===\n");
 
@@ -765,18 +766,26 @@ int do_eeprom_dump(struct ieee1284_socket *d4_sock,
 	}
 
 	reink_dbg("Let's get the EEPROM dump (%x - %x)...\n", start_addr, end_addr);
+	/* Make sure the first chunk ends on a 16-byte boundary*/
+	start_offset = start_addr & 0x0f;
 
-	for (cur_addr = start_addr; (cur_addr <= end_addr) && (cur_addr >= start_addr); cur_addr++)
-	{
-		if (read_eeprom_address(d4_sock, cur_addr, &data)) {
-			reink_log("Fail to read EEPROM data from address %x.\n", cur_addr);
-			return 1;
+	while (start_addr <= end_addr) {
+		cur_addr = start_addr;
+		for (i = 0; i < sizeof(eebuf) - start_offset; i++) {
+			if (read_eeprom_address(d4_sock, cur_addr, eebuf + i)) {
+				reink_log("Fail to read EEPROM data from address %x.\n", cur_addr);
+				return 1;
+			}
+
+			cur_addr++;
+			if ((start_addr + i) > end_addr)
+				break;
 		}
-		printf("0x%04X = 0x%02X\n", cur_addr, data);
-		if (cur_addr == end_addr)
-			break; //or there may be short int overflow and infinite loop
-	}
 
+		hexdump_offset(eebuf, i, start_addr);
+		start_offset = 0;
+		start_addr += i;
+	}
 	DBG_OK();
 
 	reink_dbg("^^^ do_eeprom_dump ^^^\n");
