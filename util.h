@@ -27,6 +27,7 @@
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
 void hexdump(const void *memory, size_t length);
+void hexdump_offset(const void *memory, size_t length, size_t start);
 int reink_do_log(const char *fmt, va_list args);
 int reink_log(const char *fmt, ...);
 

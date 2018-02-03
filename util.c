@@ -25,18 +25,20 @@
 #include <stdio.h>
 #include <stdarg.h>
 
-void hexdump(const void *memory, size_t length)
+void hexdump_offset(const void *memory, size_t length, size_t start)
 {
-	int i;
 	uint8_t *line;
 	int all_zero = 0;
 	int all_one = 0;
-	size_t num_bytes;
+	size_t i, num_bytes, skip;
 
-	for (i = 0; i < length; i += 16) {
+	skip = start & 0xf;
+	start &= ~0xf;
+
+	for (i = 0; i < length; i += num_bytes) {
 		int j;
-		num_bytes = (length - i) < 16 ? (length - i) : 16;
-		line = ((uint8_t *)memory) + i;
+		num_bytes = (length + skip - i) < 16 ? (length + skip - i) : 16;
+		line = ((uint8_t *)memory) + i - skip;
 
 		all_zero++;
 		all_one++;
@@ -55,20 +57,32 @@ void hexdump(const void *memory, size_t length)
 		}
 
 		if ((all_zero < 2) && (all_one < 2)) {
-			reink_log("%.04x:", i);
-			for (j = 0; j < num_bytes; j++)
+			reink_log("%.04x:", i + start);
+			for (j = 0; j < skip; j++)
+				reink_log("   ");
+			for (; j < num_bytes; j++)
 				reink_log(" %02x", line[j]);
 			for (; j < 16; j++)
 				reink_log("   ");
 			reink_log("  ");
-			for (j = 0; j < num_bytes; j++)
+			for (j = 0; j < skip; j++)
+				reink_log(" ");
+			for (; j < num_bytes; j++)
 				reink_log("%c",
 					  isprint(line[j]) ? line[j] : '.');
 				reink_log("\n");
 		} else if ((all_zero == 2) || (all_one == 2)) {
 			reink_log("...\n");
 		}
+
+		num_bytes -= skip;
+		skip = 0;
 	}
+}
+
+void hexdump(const void *memory, size_t length)
+{
+	hexdump_offset(memory, length, 0);
 }
 
 int reink_do_log(const char *fmt, va_list args)
