@@ -16,6 +16,7 @@
  */
  
 #include <stdbool.h>
+#include <stdint.h>
 
 //ink counters EEPROM map
 #define INK_BLACK			0x01
@@ -26,31 +27,37 @@
 #define INK_LIGHTMAGENTA	0x20
 
 typedef struct _ink_map {
-	unsigned int  mask; //bit sum of INK_ defines of available inks	
-	unsigned char black[4];
-	unsigned char cyan[4];
-	unsigned char magenta[4];
-	unsigned char yellow[4];
-	unsigned char lightcyan[4];
-	unsigned char lightmagenta[4];
+	unsigned int mask;
+	uint16_t black[4];
+	uint16_t cyan[4];
+	uint16_t magenta[4];
+	uint16_t yellow[4];
+	uint16_t lightcyan[4];
+	uint16_t lightmagenta[4];
 } ink_map_t;
 
 //waste counter EEPROM map
 typedef struct _waste_map {
-	unsigned char len;		//count of used bytes from addr
-	unsigned char addr[4];
+	/* EEPROM locations containing waste ink counters. */
+	uint16_t addr[4];
+	/* Number of EEPROM locations in 'addr'. */
+	uint8_t len;
 } waste_map_t;
 
 //the printer
 #define MAX_NAME_LEN	100
 #define MAX_MODEL_LEN	100
 typedef struct printer_info {
-	unsigned char name[MAX_NAME_LEN];			//printer textual name
-	unsigned char model_name[MAX_MODEL_LEN];	//printer model name as returned by printer itself
-	unsigned char model_code[2];	//"password" for this printer
-	int twobyte_addresses;			//is printer's EEPROM uses two-byte addresses?
 	ink_map_t inkmap;
 	waste_map_t wastemap;
+	/* Human-readable name. */
+	unsigned char name[MAX_NAME_LEN];
+	/* Printer model name as returned by printer. */
+	unsigned char model_name[MAX_MODEL_LEN];
+	/* "password" for this printer */
+	uint8_t model_code[2];
+	/* Does the printer use two-byte EEPROM addresses? */
+	bool twobyte_addresses;
 } printer_t;
 
 const struct printer_info *db_locate_printer_by_model(const char *model);

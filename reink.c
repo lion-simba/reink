@@ -688,7 +688,7 @@ int do_ink_reset(struct ieee1284_socket *d4_sock, unsigned char ink_type)
 {
 	int i;
 	unsigned char cur_ink;
-	const unsigned char *cur_addr;
+	const uint16_t *cur_addr;
 	const ink_map_t *inkmap = &d4_sock->parent->info->inkmap;
 
 	reink_dbg("=== do_ink_reset ===\n");
