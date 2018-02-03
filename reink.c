@@ -948,15 +948,8 @@ int do_make_report(struct ieee1284_socket *ctrl_sock,
 	setDebug(0);
 	ri_debug = 0;
 
-
 	printf("\nEEPROM DUMP:\n");
-	for (caddr = 0; caddr <= 0xFF; caddr++)
-	{
-		if (read_eeprom_address(ctrl_sock, caddr, &data) < 0)
-			return 0;
-
-		printf("0x%02X = 0x%02X\n", caddr, data);
-	}
+	do_eeprom_dump(ctrl_sock, 0, 0xff);
 
 	//redirecting stderr back to console
 	dup2(original_stderr, fileno(stderr));
