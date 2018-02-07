@@ -129,6 +129,7 @@
 #include <stdlib.h>	//getenv
 #include <unistd.h>	//getopt
 #include <stdio.h>	//printf, stdin, stderr, stdout
+#include <stdint.h>
 #include <string.h>	//strdup
 
 #include <sys/types.h>	//fileIO
@@ -141,6 +142,7 @@
 
 #include "d4lib.h"	//IEEE 1284.4
 #include "printers.h" //printers defs
+#include "util.h"
 
 #define REINK_VERSION_MAJOR 0
 #define REINK_VERSION_MINOR 6
@@ -162,72 +164,70 @@
 
 #define INPUT_BUF_LEN	1024
 
-#define D(__c) 	if (ri_debug) {__c;};
-#define D_OK 	D(fprintf(stderr, "OK\n"))
+#define reink_dbg(...)				\
+	do {					\
+		if (ri_debug)			\
+			reink_log(__VA_ARGS__);	\
+	} while (0)
+
+#define DBG_OK()	reink_dbg("OK\n")
 
 int ri_debug = 0;
 
 void print_usage(const char* progname);
 
-/* === protocol, channel initialization === */
 /*
-    Tries to connect to raw_device and open it for RW.
-    Then tries to initialize IEEE 1284.4 packet mode.
-    On success returns filedescriptor of opened device.
-    On fail prints various error messages to stderr and returns -1.
-*/
-int printer_connect(const char* raw_device);
+ * A printer consists of an immutable descriptor, as well as dynamic data, such
+ * as how it is connected to the system. Communication with the printer happens
+ * over IEEE1284.4 sockets.
+ * Initialization: printer_connect()
+ *     will fill in the dynamic part of the 'printer' struct.
+ * Connection: open_channel()
+ *     In order to communicate, a channel must be establishedm and the
+ *     appropriate ieee1284_socket structure initialized. This is done by
+ *     open_channel(), which handles any backend magic.
+ * Communication: printer_transact() and derivatives
+ *     Once a ieee1284_socket is available, it can be used to send data to and
+ *     from the printer. printer_transact() is the main interface for this,
+ *     although helpers built on top of printer_transact() do exist.
+ * Disconnect: close_channel()
+ *     Sockets must first be closed with close_channel(). Once all sockets
+ *     previously created from a printer are closed, the printer itself may be
+ *     released.
+ * Cleanup: printer_disconnect()
+ *     The printer does not keep track of the active sockets, so
+ *     printer_disconnect() will not be able to close any remaining sockets.
+ *     However, each socket does keep track of its parent printer.
+ */
+struct printer_connection {
+	int fd;			/* File descriptor to printer port. */
+};
 
-/*
-    fd - file descriptor for printer raw_device
-	 initialized in IEEE 1284.4 mode.
-    Tries to carefully exit from IEEE 1284.4 mode
-    and close printer raw_device (fd).
-    On success returns 0.
-    On fail prints various error messages to stderr and returns -1.
-*/
-int printer_disconnect(int fd);
+struct ieee1284_socket {
+	struct printer *parent;	/* Whom do I belong to? */
+	int fd;			/* File descriptor to printer port. */
+	int d4_socket;		/* IEEE-1284.4 socket number. */
+};
 
-/*
-    fd - file descriptor for printer raw_device
-	 initialized in IEEE 1284.4 mode.
-    Tries to get socket_id for service_name and
-    then open it.
-    On success returns positive socket_id.
-    On fail prints various error messages to stderr and returns -1.
-*/
-int open_channel(int fd, const char* service_name);
+struct printer {
+	struct printer_connection conn;
+	const struct printer_info *info;
+};
 
-/*
-    fd - file descriptor for printer raw_device
-	 initialized in IEEE 1284.4 mode.
-    socket_id - opened IEEE 1284.4 socket.
-    Tries to close socket_id.
-    On success returns 0.
-    On fail prints various error messages to stderr and returns -1.
-*/
-int close_channel(int fd, int socket_id);
-
-/*
-    fd - file descriptor for printer raw_device
-	 initialized in IEEE 1284.4 mode.
-    socket_id - opened IEEE 1284.4 socket.
-    buf_send - data to send.
-    send_len - bytes count to send.
-    buf_recv - buffer for recieved data.
-    recv_len - IN:  maximum length of buf_recv,
-	       OUT: actual bytes read.
-    Tries to write to printer channel socket_id data specified by
-    buf_send and read it's answer to buf_recv. Handles IEEE 1284.4
-    credits internally.
-    On success returns *recv_len.
-    On fail prints various error messges to stderr and returns -1.
-*/
-int printer_transact(int fd, int socket_id, const char* buf_send, int send_len, char* buf_recv, int* recv_len);
+/* Communication primitives. */
+int printer_connect(struct printer *printer, const char *raw_device);
+int printer_disconnect(struct printer *printer);
+int open_channel(struct ieee1284_socket *conn, struct printer *printer,
+		 const char* service_name);
+int close_channel(struct ieee1284_socket *conn);
+int printer_transact(struct ieee1284_socket *d4_sock,
+		     const char* buf_send, int send_len,
+		     char* buf_recv, int* recv_len);
+int printer_request_status(struct ieee1284_socket *socket, char *buf, int *len);
 /* -------------------------------- */
 
 /* === information === */
-unsigned int printer_model(const char* raw_device); //return printer model (PM_*) or PM_UNKNOWN
+const struct printer_info *printer_model(struct ieee1284_socket *d4_sock);
 /* ------------------- */
 
 /* === EPSON factory commands === */
@@ -255,29 +255,29 @@ typedef struct _fcmd_header_t {
     If model is pm_unknown, than mcode1 and mcode2 fields is set to zero
     and have to be initialized by caller.
 */
-void init_command(fcmd_header_t* cmd, unsigned int model, unsigned char class, unsigned char name, unsigned short int extra_length);
+void init_command(fcmd_header_t* cmd, const struct printer_info *info,
+		  unsigned char class, unsigned char name,
+		  unsigned short int extra_length);
 
 /*
-    fd - file descriptor for printer raw_device
-	 initialized in IEEE 1284.4 mode.
     socket_id - opened IEEE 1284.4 socket for
 	        "EPSON-CTRL" service.
     Tries to read one byte form printer's EEPROM address <addr> to <data>.
     On success returns 0.
     On fail returns -1.
 */
-int read_eeprom_address(int fd, int socket_id, unsigned int model, unsigned short int addr, unsigned char* data);
+int read_eeprom_address(struct ieee1284_socket *d4_sock,
+			unsigned short int addr, unsigned char* data);
 
 /*
-    fd - file descriptor for printer raw_device
-	 initialized in IEEE 1284.4 mode.
     socket_id - opened IEEE 1284.4 socket for
 	        "EPSON-CTRL" service.
     Tries to write one byte <data> to printer's EEPROM address <addr>.
     On success returns 0.
     On fail returns -1.
 */
-int write_eeprom_address(int fd, int socket_id, unsigned int model, unsigned short int addr, unsigned char data);
+int write_eeprom_address(struct ieee1284_socket *d4_sock,
+			 unsigned short int addr, unsigned char data);
 /* ------------------------- */
 
 /* === helpers === */
@@ -297,23 +297,26 @@ int get_tag(const char* source, int source_len, const char* tag, char* value, in
    On success returns 0.
    On fail returns -1.
 */
-int parse_ink_result(const char* buf, int len);
+int parse_v1_status_report(const uint8_t *buf, size_t len);
+int parse_v2_status_report(const uint8_t *buf, size_t len);
 /* --------------- */
 
 /* === main workers === */
-int do_ink_levels(const char* raw_device, unsigned int pm);
-int do_ink_reset(const char* raw_device, unsigned int pm, unsigned char ink_type);
-int do_eeprom_dump(const char* raw_device, unsigned int pm, unsigned short int start_addr, unsigned short int end_addr);
-int do_eeprom_write(const char* raw_device, unsigned int pm, unsigned short int addr, unsigned char data);
-int do_make_report(const char* raw_device, unsigned char model_code[]);
-int do_waste_reset(const char* raw_device, unsigned int pm);
+int do_ink_levels(struct ieee1284_socket *d4_sock);
+int do_ink_reset(struct ieee1284_socket *d4_sock, unsigned char ink_type);
+int do_eeprom_dump(struct ieee1284_socket *d4_sock,
+		   unsigned short int start_addr, unsigned short int end_addr);
+int do_eeprom_write(struct ieee1284_socket *d4_sock,
+		    unsigned short int addr, unsigned char data);
+int do_make_report(struct ieee1284_socket *ctrl_sock,
+		   unsigned char model_code[], const char *raw_device);
+int do_waste_reset(struct ieee1284_socket *d4_sock);
 /* -------------------- */
 
 int main(int argc, char** argv)
 {
-	int opt; 					//current option
+	int opt, ret; 					//current option
 	int command = CMD_NONE; 			//command to do
-	unsigned int pmodel = PM_UNKNOWN; 	//printer model
 
 	char* raw_device = NULL;	//-r option argument
 
@@ -335,8 +338,13 @@ int main(int argc, char** argv)
 	char onebyte[3];		//holds one-byte hex value ("0A" for example), used in conversion
 
 	char* str_reink_debug = NULL;	//the value of REINK_DEBUG environmental variable
+	struct ieee1284_socket ctrl_sock;
+	struct printer printer = {
+		.conn.fd = -1,
+	};
 
 	setDebug(0);
+	d4lib_set_debug_fn(reink_do_log);
 	str_reink_debug = getenv("REINK_DEBUG");
 	if (str_reink_debug)
 	{
@@ -547,51 +555,64 @@ int main(int argc, char** argv)
 	}
 	//end of options parsing
 
-	//CMD_REPORT is a special case
-	if (command == CMD_REPORT)
-		return do_make_report(raw_device, model_code);
+
+	if (printer_connect(&printer, raw_device) < 0)
+		return 1;
+
+	if (open_channel(&ctrl_sock, &printer, "EPSON-CTRL") < 0)
+		return 1;
 
 	//identifing printer
-	pmodel = printer_model(raw_device);
-	if (pmodel == PM_UNKNOWN)
-	{
-		fprintf(stderr, "Unknown printer. Wrong device file?\n");
-		return 1;
+	printer.info = printer_model(&ctrl_sock);
+
+	if (is_unknown_printer(printer.info) && (command != CMD_REPORT)) {
+		reink_log("Unknown printer. Wrong device file?\n");
+		command = CMD_NONE;
 	}
 
 	switch (command)
 	{
 	case CMD_GETINK:
-		return do_ink_levels(raw_device, pmodel);
+		ret = do_ink_levels(&ctrl_sock);
 		break;
 
 	case CMD_DUMPEEPROM:
-		return do_eeprom_dump(raw_device, pmodel, addr_s, addr_e);
+		ret = do_eeprom_dump(&ctrl_sock, addr_s, addr_e);
 		break;
 
 	case CMD_WRITEEEPROM:
-		return do_eeprom_write(raw_device, pmodel, write_addr, write_byte);
+		ret = do_eeprom_write(&ctrl_sock, write_addr, write_byte);
 		break;
 
 	case CMD_ZEROINK:
-		return do_ink_reset(raw_device, pmodel, ink_type);
+		ret = do_ink_reset(&ctrl_sock, ink_type);
 		break;
 		
 	case CMD_ZEROWASTE:
-		return do_waste_reset(raw_device, pmodel);
+		ret = do_waste_reset(&ctrl_sock);
+		break;
+
+	case CMD_REPORT:
+		ret = do_make_report(&ctrl_sock, model_code, raw_device);
 		break;
 
 	default:
-		fprintf(stderr, "Unknown command.\n");
-		return 1;
+		reink_log("Unknown command.\n");
+		ret = 1;
 	}
+
+	if (close_channel(&ctrl_sock) < 0)
+		return 1;
+
+	if (printer_disconnect(&printer) < 0)
+		return 1;
 
 	return 0;
 }
 
 void print_usage(const char* progname)
 {
-	fprintf(stderr, "ReInk v%d.%d.%d (http://reink.lerlan.ru)\n\
+	reink_log("ReInk v%d.%d.%d (http://reink.lerlan.ru)\n\
 Basic usage is:\n\
     - to get current ink levels (as done by escputil):\n\
 	%s -i -r printer_raw_device\n\
@@ -633,264 +654,191 @@ Basic usage is:\n\
 /////////////////////////////////////////////////////////////////////////////////
 //
 
-int do_ink_levels(const char* raw_device, unsigned int pmodel)
+int do_ink_levels(struct ieee1284_socket *d4_sock)
 {
-	int device; //file descriptor of the printer raw_device
-	int ctrl_socket; //IEEE 1284.4 socket identifier for "EPSON-CTRL" channel
-
 	char buf[INPUT_BUF_LEN]; //buffer for input data
 	int readed; //number of readed bytes
+	int (*do_parse_status_report)(const uint8_t* buf, size_t len);
 
-	D(fprintf(stderr, "=== do_ink_levels ===\n"))
-
-	if ((device = printer_connect(raw_device)) < 0)
-		return 1;
-
-	if ((ctrl_socket = open_channel(device, "EPSON-CTRL")) < 0)
-		return 1;
-
-	D(fprintf(stderr, "Everything seems to be ready. :) Let's get ink level. Executing \"st\" command... "))
+	reink_dbg("=== do_ink_levels ===\n");
+	reink_dbg("Everything seems to be ready. :) Let's get ink level. Executing \"st\" command... ");
 	readed = INPUT_BUF_LEN;
-	if (printer_transact(device, ctrl_socket, "st\1\0\1", 5, buf, &readed))
+	if (printer_request_status(d4_sock, buf, &readed))
 		return 1;
-	D_OK
+	DBG_OK();
 
-	D(fprintf(stderr, "Parsing result... "))
-	if (parse_ink_result(buf, readed))
+	reink_dbg("Parsing result... ");
+	if (!strncmp(buf, "@BDC ST2", 8))
+		do_parse_status_report = parse_v2_status_report;
+	else
+		do_parse_status_report = parse_v1_status_report;
+
+	if (do_parse_status_report(buf, readed))
 	{
-		fprintf(stderr, "FAIL.\n");
+		reink_log("FAIL.\n");
 		return 1;
 	}
-	D_OK
+	DBG_OK();
 
-	if (close_channel(device, ctrl_socket) < 0)
-		return 1;
-
-	if (printer_disconnect(device) < 0)
-		return 1;
-
-	D(fprintf(stderr, "^^^ do_ink_levels ^^^\n"))
+	reink_dbg("^^^ do_ink_levels ^^^\n");
 	return 0;
 }
 
-int do_ink_reset(const char* raw_device, unsigned int pm, unsigned char ink_type)
+int do_ink_reset(struct ieee1284_socket *d4_sock, unsigned char ink_type)
 {
 	int i;
 	unsigned char cur_ink;
-	unsigned char* cur_addr;
+	const uint16_t *cur_addr;
+	const ink_map_t *inkmap = &d4_sock->parent->info->inkmap;
 
-	int device; //file descriptor of the printer raw_device
-	int ctrl_socket; //IEEE 1284.4 socket identifier for "EPSON-CTRL" channel
-
-	D(fprintf(stderr, "=== do_ink_reset ===\n"))
-	
-	if (pm == PM_UNKNOWN)
-		return 1;
-
-	if ((device = printer_connect(raw_device)) < 0)
-		return 1;
-
-	if ((ctrl_socket = open_channel(device, "EPSON-CTRL")) < 0)
-		return 1;
+	reink_dbg("=== do_ink_reset ===\n");
 
 	for(cur_ink = 1; cur_ink != 0x80; cur_ink <<= 1)
 	{
 		if (!(cur_ink & ink_type))
 			continue;
 		
-		if (!(printers[pm].inkmap.mask & cur_ink))
+		if (!(inkmap->mask & cur_ink))
 		{
 			if (ink_type == 0xFF) //reset all inks
 				continue;
 				
-			fprintf(stderr, "Printer \"%s\" doesn't have ink bit %d.\n", printers[pm].name, cur_ink);
+			reink_log("Printer \"%s\" doesn't have ink bit %d.\n",
+				  d4_sock->parent->info->name, cur_ink);
 			return 1;
 		}
 		
 		switch(cur_ink)
 		{
 		case INK_BLACK:
-			cur_addr = printers[pm].inkmap.black;
+			cur_addr = inkmap->black;
 			break;
 		case INK_CYAN:
-			cur_addr = printers[pm].inkmap.cyan;
+			cur_addr = inkmap->cyan;
 			break;
 		case INK_MAGENTA:
-			cur_addr = printers[pm].inkmap.magenta;
+			cur_addr = inkmap->magenta;
 			break;
 		case INK_YELLOW:
-			cur_addr = printers[pm].inkmap.yellow;
+			cur_addr = inkmap->yellow;
 			break;
 		case INK_LIGHTCYAN:
-			cur_addr = printers[pm].inkmap.lightcyan;
+			cur_addr = inkmap->lightcyan;
 			break;
 		case INK_LIGHTMAGENTA:
-			cur_addr = printers[pm].inkmap.lightmagenta;
+			cur_addr = inkmap->lightmagenta;
 			break;
 		default:
-			fprintf(stderr, "Unknown ink bit %d.\n", cur_ink);
+			reink_log("Unknown ink bit %d.\n", cur_ink);
 			return 1;
 		}
 		
-		D(fprintf(stderr, "Resetting ink bit %d... ", cur_ink));
+		reink_dbg("Resetting ink bit %d... ", cur_ink);
 		for (i=0;i<4;i++)
-			if (write_eeprom_address(device, ctrl_socket, pm, cur_addr[i], 0x00))
-			{
-				fprintf(stderr, "Can't write to eeprom.\n");
+			if (write_eeprom_address(d4_sock, cur_addr[i], 0x00)) {
+				reink_log("Can't write to eeprom.\n");
 				return 1;
 			}
-		D_OK
+		DBG_OK();
 	}
-	
-	if (close_channel(device, ctrl_socket) < 0)
-		return 1;
 
-	if (printer_disconnect(device) < 0)
-		return 1;
-
-	D(fprintf(stderr, "^^^ do_ink_reset ^^^\n"))
+	reink_dbg("^^^ do_ink_reset ^^^\n");
 
 	return 0;
 }
 
-int do_eeprom_dump(const char* raw_device, unsigned int pm, unsigned short int start_addr, unsigned short int end_addr)
+int do_eeprom_dump(struct ieee1284_socket *d4_sock,
+		   unsigned short int start_addr, unsigned short int end_addr)
 {
-	int device; //file descriptor of the printer raw_device
-	int ctrl_socket; //IEEE 1284.4 socket identifier for "EPSON-CTRL" channel
-
+	size_t i, start_offset;
+	uint8_t eebuf[256];
 	unsigned char data; //eeprom data (one byte)
 	unsigned short int cur_addr; //current address
 
-	int i;
+	reink_dbg("=== do_eeprom_dump ===\n");
 
-	D(fprintf(stderr, "=== do_eeprom_dump ===\n"))
-
-	if (pm == PM_UNKNOWN)
-		return 1;
-
-	if ((device = printer_connect(raw_device)) < 0)
-		return 1;
-
-	if ((ctrl_socket = open_channel(device, "EPSON-CTRL")) < 0)
-		return 1;
-
-	if (!printers[pm].twobyte_addresses && (end_addr & 0xFF00))
+	if (!d4_sock->parent->info->twobyte_addresses && (end_addr & 0xFF00))
 	{
-		fprintf(stderr, "Printer \"%s\" doesn't support two-byte addresses, I will use lower byte only.\n", printers[pm].name);
+		reink_log("Printer \"%s\" doesn't support two-byte addresses, I will use lower byte only.\n",
+			  d4_sock->parent->info->name);
 		start_addr &= 0xFF;
 		end_addr &= 0xFF;
 	}
 
-	D(fprintf(stderr, "Let's get the EEPROM dump (%x - %x)...\n", start_addr, end_addr))
+	reink_dbg("Let's get the EEPROM dump (%x - %x)...\n", start_addr, end_addr);
+	/* Make sure the first chunk ends on a 16-byte boundary*/
+	start_offset = start_addr & 0x0f;
 
-	for (cur_addr = start_addr; (cur_addr <= end_addr) && (cur_addr >= start_addr); cur_addr++)
-	{
-		if (read_eeprom_address(device, ctrl_socket, pm, cur_addr, &data))
-		{
-			fprintf(stderr, "Fail to read EEPROM data from address %x.\n", cur_addr);
-			return 1;
+	while (start_addr <= end_addr) {
+		cur_addr = start_addr;
+		for (i = 0; i < sizeof(eebuf) - start_offset; i++) {
+			if (read_eeprom_address(d4_sock, cur_addr, eebuf + i)) {
+				reink_log("Fail to read EEPROM data from address %x.\n", cur_addr);
+				return 1;
+			}
+
+			cur_addr++;
+			if ((start_addr + i) > end_addr)
+				break;
 		}
-		printf("0x%04X = 0x%02X\n", cur_addr, data);
-		if (cur_addr == end_addr)
-			break; //or there may be short int overflow and infinite loop
+
+		hexdump_offset(eebuf, i, start_addr);
+		start_offset = 0;
+		start_addr += i;
 	}
+	DBG_OK();
 
-	D_OK
-
-	if (close_channel(device, ctrl_socket) < 0)
-		return 1;
-
-	if (printer_disconnect(device) < 0)
-		return 1;
-
-	D(fprintf(stderr, "^^^ do_eeprom_dump ^^^\n"))
+	reink_dbg("^^^ do_eeprom_dump ^^^\n");
 	return 0;
 }
 
-int do_eeprom_write(const char* raw_device, unsigned int pm, unsigned short int addr, unsigned char data)
+int do_eeprom_write(struct ieee1284_socket *d4_sock,
+		    unsigned short int addr, unsigned char data)
 {
-	int device; //file descriptor of the printer raw_device
-	int ctrl_socket; //IEEE 1284.4 socket identifier for "EPSON-CTRL" channel
-
 	unsigned char readed_data; //verification data
 
-	D(fprintf(stderr, "=== do_eeprom_write ===\n"))
-
-	if (pm == PM_UNKNOWN)
-		return 1;
-
-	if ((device = printer_connect(raw_device)) < 0)
-		return 1;
-
-	if ((ctrl_socket = open_channel(device, "EPSON-CTRL")) < 0)
-		return 1;
-
-	D(fprintf(stderr, "Let's write %#x to EEPROM address %#x...\n", data, addr))
-	if (write_eeprom_address(device, ctrl_socket, pm, addr, data))
+	reink_dbg("=== do_eeprom_write ===\n");
+	reink_dbg("Let's write %#x to EEPROM address %#x...\n", data, addr);
+	if (write_eeprom_address(d4_sock, addr, data))
 	{
-		fprintf(stderr, "Fail to write EEPROM data to address %#x.\n", addr);
+		reink_log("Fail to write EEPROM data to address %#x.\n", addr);
 		return 1;
 	}
-	D_OK
+	DBG_OK();
 
-	D(fprintf(stderr, "Verify by reading that byte... "))
-	if (read_eeprom_address(device, ctrl_socket, pm, addr, &readed_data))
+	reink_dbg("Verify by reading that byte... ");
+	if (read_eeprom_address(d4_sock, addr, &readed_data))
 	{
-		fprintf(stderr, "Fail to subsequent read from EEPROM address %#x.\n", addr);
+		reink_log("Fail to subsequent read from EEPROM address %#x.\n", addr);
 		return 1;
 	}
 
 	if (readed_data != data)
 	{
-		fprintf(stderr, "Verification failed (readed byte = %#x).\n", readed_data);
+		reink_log("Verification failed (readed byte = %#x).\n", readed_data);
 		return 1;
 	}
-	D_OK
+	DBG_OK();
 
-	if (close_channel(device, ctrl_socket) < 0)
-		return 1;
-
-	if (printer_disconnect(device) < 0)
-		return 1;
-
-	D(fprintf(stderr, "^^^ do_eeprom_write ^^^\n"))
+	reink_dbg("^^^ do_eeprom_write ^^^\n");
 	return 0;
 }
 
-int do_waste_reset(const char* raw_device, unsigned int pm)
+int do_waste_reset(struct ieee1284_socket *d4_sock)
 {
 	int i;
+	const waste_map_t *wastemap = &d4_sock->parent->info->wastemap;
 
-	int device; //file descriptor of the printer raw_device
-	int ctrl_socket; //IEEE 1284.4 socket identifier for "EPSON-CTRL" channel
-
-	D(fprintf(stderr, "=== do_waste_reset ===\n"))
-
-	if (pm == PM_UNKNOWN)
-		return 1;
-
-	if ((device = printer_connect(raw_device)) < 0)
-		return 1;
-
-	if ((ctrl_socket = open_channel(device, "EPSON-CTRL")) < 0)
-		return 1;
-
-	D(fprintf(stderr, "Resetting... "));
-	for (i=0;i<printers[pm].wastemap.len;i++)
-		if (write_eeprom_address(device, ctrl_socket, pm, printers[pm].wastemap.addr[i], 0x00))
-		{
-			fprintf(stderr, "Can't write to eeprom.\n");
+	reink_dbg("=== do_waste_reset ===\n");
+	reink_dbg("Resetting... ");;
+	for (i=0; i < wastemap->len; i++)
+		if (write_eeprom_address(d4_sock, wastemap->addr[i], 0x00)) {
+			reink_log("Can't write to eeprom.\n");
 			return 1;
 		}
-	D_OK
+	DBG_OK();
 
-	if (close_channel(device, ctrl_socket) < 0)
-		return 1;
-
-	if (printer_disconnect(device) < 0)
-		return 1;
-
-	D(fprintf(stderr, "^^^ do_waste_reset ^^^\n"))
+	reink_dbg("^^^ do_waste_reset ^^^\n");
 
 	return 0;
 }
@@ -903,12 +851,10 @@ What we need to know about unknown printer?
 4) cmds support: one-byte address read/write, two-byte address read/write
 5) eeprom map (at least addresses with inks usage)
 */
-int do_make_report(const char* raw_device, unsigned char model_code[])
+int do_make_report(struct ieee1284_socket *ctrl_sock,
+		   unsigned char model_code[], const char *raw_device)
 {
 	struct utsname linux_info; //uname -a reply
-	int fd; //raw_device file descriptor
-	int socket2; //socket for EPSON-CTRL
-	int socket40; //socket for EPSON-DATA
 	int have_model_code = 0; //do we have model code?
 	char buf[INPUT_BUF_LEN]; //buffer for input data
 	int readed;	//length of data in input buffer
@@ -916,10 +862,13 @@ int do_make_report(const char* raw_device, unsigned char model_code[])
 	unsigned char data; //one byte from eeprom
 	int original_stderr;
 	int original_debug = ri_debug; //original value of ri_debug
+	struct printer_info unknown_printer;
+	struct printer *printer = ctrl_sock->parent;
+	struct ieee1284_socket data_sock;
 
 	printf("ReInk v%d.%d test report.\n", REINK_VERSION_MAJOR, REINK_VERSION_MINOR);
 
-	fprintf(stderr, "Please, be patient.\nWait at least 10 minutes before force interrupt.\n");
+	reink_log("Please, be patient.\nWait at least 10 minutes before force interrupt.\n");
 
 	//uname -a
 	if (!uname(&linux_info))
@@ -938,47 +887,29 @@ int do_make_report(const char* raw_device, unsigned char model_code[])
 	//enabling debug info
 	setDebug(1);
 	ri_debug=1;
-
-	//raw_device (r/w status)
-	//can enter in ieee1284.4 mode?
-	if ((fd = printer_connect(raw_device)) < 0)
-		return 0;
-
-	//opening EPSON-CTRL
-	if ((socket2 = open_channel(fd, "EPSON-CTRL")) < 0)
-	{
-		printer_disconnect(fd);
-		return 0;
-	}
+	unknown_printer = *db_locate_printer_by_model("Unknown printer");
+	printer->info = &unknown_printer;
 
 	//opening EPSON-DATA (just try to open - then close)
-	if ((socket40 = open_channel(fd, "EPSON-DATA")) >= 0)
-		close_channel(fd, socket40); //no need anymore
+	if (open_channel(&data_sock, printer, "EPSON-DATA") >= 0)
+		close_channel(&data_sock); //no need anymore
 
 	//reply to "di" command
 	readed = INPUT_BUF_LEN;
-	if (printer_transact(fd, socket2, "di\1\0\1", 5, buf, &readed) < 0)
-	{
-		close_channel(fd, socket2);
-		printer_disconnect(fd);
+	if (printer_transact(ctrl_sock, "di\1\0\1", 5, buf, &readed) < 0)
 		return 0;
-	}
 
 	//reply to "st" command
 	readed = INPUT_BUF_LEN;
-	if (printer_transact(fd, socket2, "st\1\0\1", 5, buf, &readed) < 0)
-	{
-		close_channel(fd, socket2);
-		printer_disconnect(fd);
+	if (printer_request_status(ctrl_sock, buf, &readed) < 0)
 		return 0;
-	}
 
 	//init unknown printer
-	printers[PM_UNKNOWN].model_code[0] = model_code[0];
-	printers[PM_UNKNOWN].model_code[1] = model_code[1];
+	unknown_printer.model_code[0] = model_code[0];
+	unknown_printer.model_code[1] = model_code[1];
 
 	//assume first this is two-byte addresses printer
-	printers[PM_UNKNOWN].twobyte_addresses = 1;
+	unknown_printer.twobyte_addresses = 1;
 
 	if (model_code[0] != 0 || model_code[1] != 0)
 		have_model_code = 1;
@@ -989,18 +920,18 @@ int do_make_report(const char* raw_device, unsigned char model_code[])
 	}
 
 	//let's find out the model code
-	while (printers[PM_UNKNOWN].model_code[0] != 0xFF && !have_model_code)
+	while (unknown_printer.model_code[0] != 0xFF && !have_model_code)
 	{
 		//try to read from eeprom (address 00)
-		if (read_eeprom_address(fd, socket2, PM_UNKNOWN, 0x00, &data) == 0)
+		if (read_eeprom_address(ctrl_sock, 0x00, &data) == 0)
 		{
-			printf("We found model code: 0x%02X 0x%02X\n", printers[PM_UNKNOWN].model_code[0], printers[PM_UNKNOWN].model_code[1]);
+			printf("We found model code: 0x%02X 0x%02X\n", unknown_printer.model_code[0], unknown_printer.model_code[1]);
 			have_model_code = 1;
 			break;
 		}
 
-		if (printers[PM_UNKNOWN].model_code[1]++ == 0xFF)
-			printers[PM_UNKNOWN].model_code[0]++;
+		if (unknown_printer.model_code[1]++ == 0xFF)
+			unknown_printer.model_code[0]++;
 
 		if (ri_debug && !original_debug)
 		{
@@ -1011,11 +942,7 @@ int do_make_report(const char* raw_device, unsigned char model_code[])
 	}
 
 	if (!have_model_code)
-	{
-		close_channel(fd, socket2);
-		printer_disconnect(fd);
 		return 0;
-	}
 
 	//on success - dump eeprom 0x00-0xFF
 
@@ -1023,50 +950,34 @@ int do_make_report(const char* raw_device, unsigned char model_code[])
 	setDebug(1);
 	ri_debug = 1;
 
-	if (read_eeprom_address(fd, socket2, PM_UNKNOWN, 0x00, &data) != 0)
-	{
-		close_channel(fd, socket2);
-		printer_disconnect(fd);
+	if (read_eeprom_address(ctrl_sock, 0x00, &data) != 0)
 		return 0;
-	}
 
 	//disabling debug before dump
 	setDebug(0);
 	ri_debug = 0;
 
-
 	printf("\nEEPROM DUMP:\n");
-	for (caddr = 0; caddr <= 0xFF; caddr++)
-	{
-		if (read_eeprom_address(fd, socket2, PM_UNKNOWN, caddr, &data) < 0)
-		{
-			close_channel(fd, socket2);
-			printer_disconnect(fd);
-			return 0;
-		}
-		printf("0x%02X = 0x%02X\n", caddr, data);
-	}
+	do_eeprom_dump(ctrl_sock, 0, 0xff);
 
 	//redirecting stderr back to console
 	dup2(original_stderr, fileno(stderr));
 
-	fprintf(stderr, "Report complete. Thank you.\n");
+	reink_log("Report complete. Thank you.\n");
 
 	if (have_model_code && (model_code[0] == 0 && model_code[1] == 0))
 	{
-		fprintf(stderr, "You will provide even more help for me if\n\
-you run printer head cleaning now and\n\
-then make another report with command:\n\
-./reink -r %s -t%02X%02X > ./testreport2.log\n", raw_device, printers[PM_UNKNOWN].model_code[0], printers[PM_UNKNOWN].model_code[1]);
+		reink_log("You will provide even more help for me if\n"
+			  "you run printer head cleaning now and\n"
+			  "then make another report with command:\n"
+			  "./reink -r %s -t%02X%02X > ./testreport2.log\n",
+			  raw_device, unknown_printer.model_code[0],
+			  unknown_printer.model_code[1]);
 	}
 	else if (model_code[0] != 0 || model_code[1] != 0)
 	{
-		fprintf(stderr, "Now send me both reports.\n");
+		reink_log("Now send me both reports.\n");
 	}
-
-	close_channel(fd, socket2);
-	printer_disconnect(fd);
-	close(fd);
 
 	return 0;
 }
@@ -1076,26 +987,26 @@ then make another report with command:\n\
 /////////////////////////////////////////////////////////////////////////////////
 //
 
-int parse_ink_result(const char* buf, int len)
+int parse_v1_status_report(const uint8_t *buf, size_t len)
 {
 	char ink_info[20];
 	char ink_val[3];
 	int i;
 	int val;
 
-	D(fprintf(stderr, "=== parse_ink_result ===\n"))
+	reink_dbg("=== parse_ink_result ===\n");
 
-	D(fprintf(stderr, "Getting the \"IQ:\" tag... "));
+	reink_dbg("Getting the \"IQ:\" tag... ");;
 	if (get_tag(buf, len, "IQ:", ink_info, 20))
 	{
-		fprintf(stderr, "Can't find ink levels information in printer answer.\n");
+		reink_log("Can't find ink levels information in printer answer.\n");
 		return 1;
 	}
-	D(fprintf(stderr, "OK, have string \"%s\".\n", ink_info));
+	reink_dbg("OK, have string \"%s\".\n", ink_info);;
 
 	if ((strlen(ink_info)) % 2 != 0)
 	{
-		fprintf(stderr, "Malformed output in printer answer.\n");
+		reink_log("Malformed output in printer answer.\n");
 		return 1;
 	}
 
@@ -1108,7 +1019,127 @@ int parse_ink_result(const char* buf, int len)
 		printf("Ink type (color) %d remains %d percents.\n", i/2+1, val);
 	}
 
-	D(fprintf(stderr, "^^^ parse_ink_result ^^^\n"))
+	reink_dbg("^^^ parse_ink_result ^^^\n");
+
+	return 0;
+}
+
+static const char *ink_color_name(size_t idx)
+{
+	static const char *color_names[] = {
+		[0x00] = "Black",
+		[0x01] = "Photo Black",
+		"Unknown",
+		[0x03] = "Cyan",
+		[0x04] = "Magenta",
+		[0x05] = "Yellow",
+		[0x06] = "Light Cyan",
+		[0x07] = "Light Magenta",
+		"Unknown",
+		"Unknown",
+		[0x0a] = "Light Black",
+		[0x0b] = "Matte Black",
+		[0x0c] = "Red",
+		[0x0d] = "Blue",
+		[0x0e] = "Gloss Optimizer",
+		[0x0f] = "Light Light Black",
+		[0x10] = "Orange",
+	};
+
+	return (idx > ARRAY_SIZE(color_names)) ? "ERROR" : color_names[idx];
+}
+
+static const char *ink_aux_color_name(size_t idx)
+{
+	static const char *aux_color_names[] = {
+		[0x00] = "Black",
+		[0x01] = "Cyan",
+		[0x02] = "Magenta",
+		[0x03] = "Yellow",
+		[0x04] = "Light Cyan",
+		[0x05] = "Light Magenta",
+		"Unknown",
+		"Unknown",
+		[0x09] = "Red",
+		[0x0a] = "Blue",
+		"Unknown",
+		"Unknown",
+		[0x0d] = "Orange",
+		"Unknown",
+		"Unknown",
+	};
+
+	return (idx > ARRAY_SIZE(aux_color_names)) ? "ERROR"
+		: aux_color_names[idx];
+}
+
+static int report_inks_levels_v2(const uint8_t* buf, size_t len)
+{
+	uint8_t entry_size, num_colors, i, idx_name, idx_aux, level;
+
+	entry_size = buf[0];
+	if (entry_size != 3) {
+		reink_log("Expected 3-byte ink level entry, got %d instead\n",
+			  entry_size);
+		return -1;
+	}
+
+	num_colors = (len - 1) / entry_size;
+	if ((len - 1) % entry_size)
+		reink_log("Ink level entries not multiple of message size\n");
+
+	buf ++;
+	reink_log("Reported ink levels:\n");
+	for (i = 0; i < num_colors; i++) {
+		idx_name = buf[0];
+		idx_aux = buf[1];
+		level = buf[2];
+
+		/* The funky format string is just for aligning the output. */
+		reink_log("\t%-16saux - %-16s%4d\%\n", ink_color_name(idx_name),
+			  ink_aux_color_name(idx_aux), level);
+
+		buf += entry_size;
+	}
+}
+
+int parse_v2_status_report(const uint8_t* buf, size_t len)
+{
+	uint8_t msg_type, msg_size;
+	const uint8_t *msg;
+	const uint8_t num_pork_bytes = 12;
+
+	if (len < num_pork_bytes)
+		return -1;
+
+	len -= num_pork_bytes;
+	buf += num_pork_bytes;
+
+	while (len) {
+		msg_type = buf[0];
+		msg_size = buf[1];
+		msg = buf + 2;
+
+		if ((msg_size + 2) > len) {
+			reink_log("Malformed status report\n");
+			return -1;
+		}
+
+		switch (msg_type) {
+		case 0x01:
+			reink_dbg("Printer status code: %x\n", msg[0]);
+			break;
+		case 0x0f:
+			report_inks_levels_v2(msg, msg_size);
+			break;
+		default:
+			reink_dbg("Unknown report type %x in status message\n",
+				  msg_type);
+		}
+
+		buf += msg_size + 2;
+		len -= msg_size + 2;
+	}
 
 	return 0;
 }
@@ -1116,52 +1147,50 @@ int parse_ink_result(const char* buf, int len)
 int get_tag(const char* source, int source_len, const char* tag, char* value, int max_value_len)
 {
 	int tag_len;
-	int pos;
-	int pos_end;
 	int val_len;
+	const char *semicol;
 
-	D(fprintf(stderr, "=== get_tag ===\n"))
+	reink_dbg("=== get_tag ===\n");
 
-	D(fprintf(stderr, "Searching for \"%s\" substring... ", tag));
+	reink_dbg("Searching for \"%s\" substring... ", tag);
 
 	tag_len = strlen(tag);
-	pos = 0;
-	while ((pos + tag_len < source_len) &&  (0 != strncmp(source+pos, tag, tag_len)))
-		pos++;
+	/* Can't use strstr(), since source is not NULL-terminated. */
+	while ((tag_len < source_len) && (strncmp(source, tag, tag_len))) {
+		source++;
+		source_len--;
+	}
 
-	if (pos + tag_len == source_len)
-	{
-		D(fprintf(stderr, "NOT FOUND.\n"));
+	if (tag_len == source_len) {
+		reink_dbg("NOT FOUND.\n");
 		return -1;
 	}
 
-	D(fprintf(stderr, "FOUND, pos=%d.\n", pos));
+	reink_dbg("FOUND\n");
 
-	pos += tag_len;
+	source += tag_len;
 
-	D(fprintf(stderr, "Searching for \";\" character... "));
-	pos_end = pos;
-	while ((pos_end < source_len) && (source[pos_end] != ';'))
-		pos_end++;
-	if (pos_end  == source_len)
-	{
-		D(fprintf(stderr, "NOT FOUND.\n"));
+	reink_dbg("Searching for \";\" character... ");
+
+	semicol = memchr(source, ';', source_len);
+	if (!semicol) {
+		reink_dbg("NOT FOUND.\n");
 		return -1;
 	}
-	D(fprintf(stderr, "FOUND, pos_end=%d.\n", pos_end));
 
-	val_len = pos_end - pos;
-	if (val_len+1 > max_value_len)
-	{
-		D(fprintf(stderr, "Value(+'\\0') too long (%d) for given buffer (%d).\n", val_len+1, max_value_len));
+	val_len = (intptr_t)(semicol - source);
+	reink_dbg("FOUND, len=%d.\n", val_len);
+
+	if (val_len > max_value_len - 1) {
+		reink_dbg("Value(+'\\0') too long (%d) for given buffer (%d).\n", val_len+1, max_value_len);
 		return 1;
 	}
 
-	memcpy(value, source + pos, val_len);
+	strncpy(value, source, val_len);
 	value[val_len] = '\0';
-	D(fprintf(stderr, "Tag value:\"%s\".\n", value));
+	reink_dbg("Tag value:\"%s\".\n", value);
 
-	D(fprintf(stderr, "^^^ get_tag ^^^\n"))
+	reink_dbg("^^^ get_tag ^^^\n");
 
 	return 0;
 }
@@ -1171,60 +1200,37 @@ int get_tag(const char* source, int source_len, const char* tag, char* value, in
 /////////////////////////////////////////////////////////////////////////////////
 //
 
-unsigned int printer_model(const char* raw_device)
+const struct printer_info *printer_model(struct ieee1284_socket *d4_sock)
 {
-	int device; //file descriptor of the printer raw_device
-	int ctrl_socket; //IEEE 1284.4 socket identifier for "EPSON-CTRL" channel
-
 	unsigned int i;
-
+	struct printer printer;
+	const struct printer_info *unknown;
 	char buf[INPUT_BUF_LEN]; //buffer for input data
 	int readed; //number of readed bytes
-
 	char strModel[MAX_MODEL_LEN];
 
-	unsigned int model = PM_UNKNOWN;
+	unknown = db_locate_printer_by_model("Unknown_printer");
 
-	D(fprintf(stderr, "=== printer_model ===\n"))
+	reink_dbg("=== printer_model ===\n");
 
-	if ((device = printer_connect(raw_device)) < 0)
-		return PM_UNKNOWN;
-
-	if ((ctrl_socket = open_channel(device, "EPSON-CTRL")) < 0)
-		return PM_UNKNOWN;
-
-	D(fprintf(stderr, "Let's get printer info. Executing \"di\" command... "))
+	reink_dbg("Let's get printer info. Executing \"di\" command... ");
 	readed = INPUT_BUF_LEN;
-	if (printer_transact(device, ctrl_socket, "di\1\0\1", 5, buf, &readed))
-		return PM_UNKNOWN;
-	D_OK
+	if (printer_transact(d4_sock, "di\1\0\1", 5, buf, &readed))
+		return unknown;
+	DBG_OK();
 
-	D(fprintf(stderr, "Parsing result... "))
+	reink_dbg("Parsing result... ");
 	if (get_tag(buf, readed, "MDL:", strModel, MAX_MODEL_LEN))
 	{
-		D(fprintf(stderr, "Parse failed.\n"));
-		return PM_UNKNOWN;
+		reink_dbg("Parse failed.\n");
+		return unknown;
 	}
-	D_OK
+	DBG_OK();
 
-	for(i = 0; i < printers_count; i++)
-	{
-		if (!strcmp(strModel, printers[i].model_name))
-		{
-			D(fprintf(stderr, "Printer \"%s\".\n", printers[i].name));
-			model = i;
-			break;
-		}
-	}
+	printer.info = db_locate_printer_by_model(strModel);
 	
-	if (close_channel(device, ctrl_socket) < 0)
-		return model;
-
-	if (printer_disconnect(device) < 0)
-		return model;
-
-	D(fprintf(stderr, "^^^ printer_model ^^^\n"))
-	return model;
+	reink_dbg("^^^ printer_model ^^^\n");
+	return printer.info;
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -1232,173 +1238,185 @@ unsigned int printer_model(const char* raw_device)
 /////////////////////////////////////////////////////////////////////////////////
 //
 
-int printer_connect(const char* raw_device)
+int printer_connect(struct printer *printer, const char *raw_device)
 {
-	int device;
+	reink_dbg("=== printer_connect ===\n");
 
-	D(fprintf(stderr, "=== printer_connect ===\n"));
-
-	D(fprintf(stderr, "Opening raw device... "))
-	device = open(raw_device, O_RDWR | O_SYNC);
-	if (device == -1)
-	{
-		fprintf(stderr, "Error opening device file '%s': %s\n", raw_device, strerror(errno));
+	reink_dbg("Opening raw device... ");
+	printer->conn.fd = open(raw_device, O_RDWR | O_SYNC);
+	if (printer->conn.fd < 0) {
+		reink_log("Error opening device file '%s': %s\n", raw_device, strerror(errno));
 		return -1;
 	}
-	D_OK
+	DBG_OK();
 
-	clearSndBuf(device); //if there are some data from previous incoreectly terminated session
+	clearSndBuf(printer->conn.fd); //if there are some data from previous incoreectly terminated session
 
-	D(fprintf(stderr, "Entering IEEE 1284.4 mode... "))
-	if (!EnterIEEE(device))
+	reink_dbg("Entering IEEE 1284.4 mode... ");
+	if (!EnterIEEE(printer->conn.fd))
 	{
-		fprintf(stderr, "Can't enter in IEEE 1284.4 mode. Wrong printer device file?\n");
+		reink_log("Can't enter in IEEE 1284.4 mode. Wrong printer device file?\n");
 		return -1;
 	}
-	D_OK
+	DBG_OK();
 
-	D(fprintf(stderr, "Perfoming IEEE 1284.4 Init transaction... "))
-	if (!Init(device))
+	reink_dbg("Perfoming IEEE 1284.4 Init transaction... ");
+	if (!Init(printer->conn.fd))
 	{
-		fprintf(stderr, "IEEE 1284.4: \"Init\" transaction failed.\n");
+		reink_log("IEEE 1284.4: \"Init\" transaction failed.\n");
 		return -1;
 	}
-	D_OK
+	DBG_OK();
 
-	D(fprintf(stderr, "^^^ printer_connect ^^^\n"));
+	reink_dbg("^^^ printer_connect ^^^\n");
 
-	return device;
+	return 0;
 }
 
-int printer_disconnect(int fd)
+int printer_disconnect(struct printer *printer)
 {
-	D(fprintf(stderr, "=== printer_disconnect ===\n"));
+	int ret;
 
-	D(fprintf(stderr, "Perfoming IEEE 1284.4 Exit transaction... "))
-	if (!Exit(fd))
+	reink_dbg("=== printer_disconnect ===\n");
+
+	reink_dbg("Perfoming IEEE 1284.4 Exit transaction... ");
+	if (!Exit(printer->conn.fd))
 	{
-		fprintf(stderr, "IEEE 1284.4: \"Exit\" transaction failed.\n");
+		reink_log("IEEE 1284.4: \"Exit\" transaction failed.\n");
 		return -1;
 	}
-	D_OK
+	DBG_OK();
 
-	D(fprintf(stderr, "Closing raw device... "))
-	fd = close(fd);
-	if (fd == -1)
-	{
-		fprintf(stderr, "Error closing printer device file: %s\n", strerror(errno));
+	reink_dbg("Closing raw device... ");
+	if (close(printer->conn.fd) < 0) {
+		reink_log("Error closing printer device file: %s\n", strerror(errno));
 		return -1;
 	}
-	D_OK
+	DBG_OK();
 
-	D(fprintf(stderr, "^^^ printer_disconnect ^^^\n"));
+	reink_dbg("^^^ printer_disconnect ^^^\n");
 
 	return 0;
 }
 
 
-int open_channel(int fd, const char* service_name)
+int open_channel(struct ieee1284_socket *d4_sock, struct printer *printer,
+		 const char* service_name)
 {
-	int socket;
+	int ret;
 	int max_send_packet = 0x0200; //maximum size of PC to printer packet (this value may be changed by the printer while opening a channel)
 	int max_recv_packet = 0x0200; //maximum size of printer to PC packet (this value may be changed by the printer while opening a channel)
 
-	D(fprintf(stderr, "=== open_channel ===\n"));
+	reink_dbg("=== open_channel ===\n");
 
-	D(fprintf(stderr, "Obtaining IEEE 1284.4 socket for \"%s\" service... ", service_name))
-	if (!(socket = GetSocketID(fd, service_name)))
-	{
-		fprintf(stderr, "IEEE 1284.4: \"GetSocketID\" transaction failed.\n");
+	d4_sock->fd = printer->conn.fd;
+	d4_sock->parent = printer;
+
+	reink_dbg("Obtaining IEEE 1284.4 socket for \"%s\" service... ", service_name);
+	d4_sock->d4_socket = GetSocketID(d4_sock->fd, service_name);
+	if (!d4_sock->d4_socket) {
+		reink_log("IEEE 1284.4: \"GetSocketID\" transaction failed.\n");
 		return -1;
 	}
-	D(fprintf(stderr, "OK, socket=%d.\n", socket));
+	reink_dbg("OK, socket=%d.\n", d4_sock->d4_socket);
 
-	D(fprintf(stderr, "Opening IEEE 1284.4 channel %d-%d... ", socket, socket))
-	if (1 != OpenChannel(fd, socket, &max_send_packet, &max_recv_packet))
-	{
-		fprintf(stderr, "IEEE 1284.4: \"OpenChannel\" transaction failed.\n");
+	reink_dbg("Opening IEEE 1284.4 channel %d... ", d4_sock->d4_socket);
+	ret = OpenChannel(d4_sock->fd, d4_sock->d4_socket,
+			  &max_send_packet, &max_recv_packet);
+	if (ret != 1) {
+		reink_log("IEEE 1284.4: \"OpenChannel\" transaction failed.\n");
 		return -1;
 	}
-	D_OK
+	DBG_OK();
 
-	D(fprintf(stderr, "^^^ open_channel ^^^\n"));
-
-	return socket;
-}
-
-int close_channel(int fd, int socket_id)
-{
-	D(fprintf(stderr, "=== close_channel ===\n"));
-
-	D(fprintf(stderr, "Closing IEEE 1284.4 channel %d-%d... ", socket_id, socket_id))
-	if (1 != CloseChannel(fd, socket_id))
-	{
-		fprintf(stderr, "IEEE 1284.4: \"CloseChannel\" transaction failed.\n");
-		return -1;
-	}
-	D_OK
-
-	D(fprintf(stderr, "^^^ close_channel ^^^\n"));
+	reink_dbg("^^^ open_channel ^^^\n");
 
 	return 0;
 }
 
-int printer_transact(int fd, int socket_id, const char* buf_send, int send_len, char* buf_recv, int* recv_len)
+int close_channel(struct ieee1284_socket *d4_sock)
+{
+	reink_dbg("=== close_channel ===\n");
+
+	reink_dbg("Closing IEEE 1284.4 channel %d... ", d4_sock->d4_socket);
+	if (1 != CloseChannel(d4_sock->fd, d4_sock->d4_socket))
+	{
+		reink_log("IEEE 1284.4: \"CloseChannel\" transaction failed.\n");
+		return -1;
+	}
+	DBG_OK();
+
+	reink_dbg("^^^ close_channel ^^^\n");
+
+	return 0;
+}
+
+int printer_transact(struct ieee1284_socket *d4,
+		     const char* buf_send, int send_len,
+		     char* buf_recv, int* recv_len)
 {
 	int credits = 0; //count of ieee1284.4 credits I have left
 	int buf_len;	//the length of recieve buffer
 
-	D(fprintf(stderr, "=== printer_transact ===\n"));
+	reink_dbg("=== printer_transact ===\n");
 
 	buf_len = *recv_len;
 
-	D(fprintf(stderr, "Requesting some IEEE 1284.4 credits on channel %d-%d... ", socket_id, socket_id))
-	credits = CreditRequest(fd, socket_id);
+	reink_dbg("Requesting some IEEE 1284.4 credits on channel %d... ",
+		  d4->d4_socket);
+	credits = CreditRequest(d4->fd, d4->d4_socket);
 	if (credits < 1)
 	{
-		fprintf(stderr, "IEEE 1284.4: \"CreditRequest\" transaction failed.\n");
+		reink_log("IEEE 1284.4: \"CreditRequest\" transaction failed.\n");
 		return -1;
 	}
-	D(fprintf(stderr, "OK, got %d credits.\n", credits))
+	reink_dbg("OK, got %d credits.\n", credits);
 
 	/* // made automatically by readData later
-	D(fprintf(stderr, "Giving one IEEE 1284.4 credit to printer on channel %d-%d... ", ctrl_socket, ctrl_socket))
-	if (1 != Credit(device, ctrl_socket, 1))
+	reink_dbg("Giving one IEEE 1284.4 credit to printer on channel %d-%d... ", ctrl_socket, ctrl_socket))
+	if (1 != Credit(printer, 1))
 	{
-	fprintf(stderr, "IEEE 1284.4: \"Credit\" transaction failed.\n");
+	reink_log("IEEE 1284.4: \"Credit\" transaction failed.\n");
 	return -1;
 	}
-	D_OK
+	DBG_OK();
 	*/
 
-	D(fprintf(stderr, "Writing data to printer... "))
-	if (writeData(fd, socket_id, buf_send, send_len, 0) < send_len)
+	reink_dbg("Writing data to printer... ");
+	if (writeData(d4->fd, d4->d4_socket, buf_send, send_len, 0) < send_len)
 	{
-		fprintf(stderr, "IEEE 1284.4: Error sending data to channel %d-%d.\n", socket_id, socket_id);
+		reink_log("IEEE 1284.4: Error sending data to channel %d.\n",
+			  d4->d4_socket);
 		return -1;
 	}
-	D_OK
+	DBG_OK();
 
-	D(fprintf(stderr, "Get the answer... "))
-	if ((*recv_len = readData(fd, socket_id, buf_recv, buf_len)) < 0)
-	{
-		fprintf(stderr, "IEEE 1284.4: Error recieving data from channel %d-%d.\n", socket_id, socket_id);
+	reink_dbg("Get the answer... ");
+	*recv_len = readData(d4->fd, d4->d4_socket, buf_recv, buf_len);
+	if (*recv_len < 0) {
+		reink_log("IEEE 1284.4: Error recieving data from channel %d.\n",
+			  d4->d4_socket);
 		return -1;
 	}
-	D_OK
+	DBG_OK();
 
-	D(fprintf(stderr, "^^^ printer_transact ^^^\n"));
+	reink_dbg("^^^ printer_transact ^^^\n");
 
 	return 0;
 }
 
-
+int printer_request_status(struct ieee1284_socket *d4_sock, char *buf, int *len)
+{
+	return printer_transact(d4_sock, "st\1\0\1", 5, buf, len);
+}
 
 /////////////////////////////////////////////////////////////////////////////////
 //	EPSON FACTORY COMMANDS
 /////////////////////////////////////////////////////////////////////////////////
 
-void init_command(fcmd_header_t* cmd, unsigned int pm, unsigned char class, unsigned char name, unsigned short int extra_length)
+void init_command(fcmd_header_t* cmd, const struct printer_info *info,
+		  unsigned char class, unsigned char name,
+		  unsigned short int extra_length)
 {
 	unsigned short int full_length;
 
@@ -1414,11 +1432,12 @@ void init_command(fcmd_header_t* cmd, unsigned int pm, unsigned char class, unsi
 	cmd->cmd1 = ~name;
 	cmd->cmd2 = ((name >> 1) & 0x7F) | ((name << 7) & 0x80); //round shift by one bit to the right
 
-	cmd->mcode1 = printers[pm].model_code[0];
-	cmd->mcode2 = printers[pm].model_code[1];
+	cmd->mcode1 = info->model_code[0];
+	cmd->mcode2 = info->model_code[1];
 }
 
-int read_eeprom_address(int fd, int socket_id, unsigned int pm, unsigned short int addr, unsigned char* data)
+int read_eeprom_address(struct ieee1284_socket *d4_sock,
+			unsigned short int addr, unsigned char* data)
 {
 	char cmd[11]; // full command with address
 	int cmd_len = 10; //length of the command
@@ -1433,10 +1452,10 @@ int read_eeprom_address(int fd, int socket_id, unsigned int pm, unsigned short i
 	char onebyte[5]; //contains one or two HEX byte string ("B2\0" for example)
 	unsigned short int replyaddr; //reply address (for confirmation)
 
-	D(fprintf(stderr, "=== read_eeprom_address ===\n"))
+	reink_dbg("=== read_eeprom_address ===\n");
 
 	cmd[9] = addr & 0xFF;
-	if (printers[pm].twobyte_addresses)
+	if (d4_sock->parent->info->twobyte_addresses)
 	{
 		cmd[10] = (addr >> 8) & 0xFF;
 		cmd_len = 11;
@@ -1447,35 +1466,36 @@ int read_eeprom_address(int fd, int socket_id, unsigned int pm, unsigned short i
 	{
 		if ((addr >> 8) != 0)
 		{
-			D(fprintf(stderr, "Printer \"%s\" don't support two-byte addresses. Continuing using low byte only.\n", printers[pm].name));
+			reink_dbg("Printer \"%s\" don't support two-byte addresses. Continuing using low byte only.\n", d4_sock->parent->info->name);
 			addr = addr & 0xFF;
 		}
 	}
 
-	init_command((fcmd_header_t*)cmd, pm, EFCLS_EEPROM_READ, EFCMD_EEPROM_READ, cmd_args_count);
+	init_command((fcmd_header_t*)cmd, d4_sock->parent->info,
+		     EFCLS_EEPROM_READ, EFCMD_EEPROM_READ, cmd_args_count);
 
-	D(fprintf(stderr, "Reading eeprom address %#x... ", addr))
+	reink_dbg("Reading eeprom address %#x... ", addr);
 	actual = INPUT_BUF_LEN;
-	if (printer_transact(fd, socket_id, cmd, cmd_len, reply, &actual))
+	if (printer_transact(d4_sock, cmd, cmd_len, reply, &actual))
 	{
-		D(fprintf(stderr, "Transact failed.\n"))
+		reink_dbg("Transact failed.\n");
 		return -1;
 	}
 
 	if (get_tag(reply, actual, "EE:", reply_data, 7))
 	{
-		D(fprintf(stderr, "Can't get reply data.\n"))
+		reink_dbg("Can't get reply data.\n");
 		return -1;
 	}
-	D_OK
+	DBG_OK();
 
 	if (strlen(reply_data) != reply_data_len)
 	{
-		D(fprintf(stderr, "ReplyData length != %d\n", reply_data_len))
+		reink_dbg("ReplyData length != %d\n", reply_data_len);
 		reply_data_len -= 2; //assuming this is one-byte addresses printer
 		if (strlen(reply_data) == reply_data_len)
 		{
-			D(fprintf(stderr, "Seems like printer with one-byte addresses EEPROM.\n"))
+			reink_dbg("Seems like printer with one-byte addresses EEPROM.\n");
 		}
 		else
 			return -1;
@@ -1487,7 +1507,7 @@ int read_eeprom_address(int fd, int socket_id, unsigned int pm, unsigned short i
 	replyaddr = strtol(onebyte, NULL, 16);
 	if (replyaddr != addr)
 	{
-		D(fprintf(stderr, "Reply address (%x) don't match requested (%x).\n", replyaddr, addr))
+		reink_dbg("Reply address (%x) don't match requested (%x).\n", replyaddr, addr);
 		return -1;
 	}
 
@@ -1495,14 +1515,15 @@ int read_eeprom_address(int fd, int socket_id, unsigned int pm, unsigned short i
 	onebyte[2] = '\0';
 	*data = strtol(onebyte, NULL, 16);
 
-	D(fprintf(stderr, "EEPROM addr %#x = %#x.\n", addr, *data))
+	reink_dbg("EEPROM addr %#x = %#x.\n", addr, *data);
 
-	D(fprintf(stderr, "^^^ read_eeprom_address ^^^\n"))
+	reink_dbg("^^^ read_eeprom_address ^^^\n");
 
 	return 0;
 }
 
-int write_eeprom_address(int fd, int socket_id, unsigned int pm, unsigned short int addr, unsigned char data)
+int write_eeprom_address(struct ieee1284_socket *d4_sock,
+			 unsigned short int addr, unsigned char data)
 {
 	char cmd[12]; // full command with address
 	int cmd_len = 11; // full length of the command
@@ -1512,10 +1533,10 @@ int write_eeprom_address(int fd, int socket_id, unsigned int pm, unsigned short 
 	int actual; // actual reply length
 	char reply_data[6]; // buffer for "OK" tag
 
-	D(fprintf(stderr, "=== write_eeprom_address ===\n"))
+	reink_dbg("=== write_eeprom_address ===\n");
 
 	cmd[9] = addr & 0xFF;
-	if (printers[pm].twobyte_addresses)
+	if (d4_sock->parent->info->twobyte_addresses)
 	{
 		cmd[10] = (addr >> 8) & 0xFF;
 		cmd[11] = (char)data;
@@ -1527,27 +1548,28 @@ int write_eeprom_address(int fd, int socket_id, unsigned int pm, unsigned short 
 		cmd[10] = (char)data;
 
 		if ((addr >> 8) != 0)
-			D(fprintf(stderr, "Printer \"%s\" don't support two-byte addresses. Continuing using low byte only.\n", printers[pm].name));
+			reink_dbg("Printer \"%s\" don't support two-byte addresses. Continuing using low byte only.\n", d4_sock->parent->info->name);
 	}
 
-	init_command((fcmd_header_t*)cmd, pm, EFCLS_EEPROM_WRITE, EFCMD_EEPROM_WRITE, cmd_args_len);
+	init_command((fcmd_header_t*)cmd, d4_sock->parent->info,
+		     EFCLS_EEPROM_WRITE, EFCMD_EEPROM_WRITE, cmd_args_len);
 
-	D(fprintf(stderr, "Writing %#x to eeprom address %#x... ", data, addr))
+	reink_dbg("Writing %#x to eeprom address %#x... ", data, addr);
 	actual = INPUT_BUF_LEN;
-	if (printer_transact(fd, socket_id, cmd, cmd_len, reply, &actual))
+	if (printer_transact(d4_sock, cmd, cmd_len, reply, &actual))
 	{
-		D(fprintf(stderr, "Transact failed.\n"))
+		reink_dbg("Transact failed.\n");
 		return -1;
 	}
 
 	if (get_tag(reply, actual, "OK", reply_data, 6))
 	{
-		D(fprintf(stderr, "Can't get reply data.\n"))
+		reink_dbg("Can't get reply data.\n");
 		return -1;
 	}
-	D_OK
+	DBG_OK();
 
-	D(fprintf(stderr, "^^^ write_eeprom_address ^^^\n"))
+	reink_dbg("^^^ write_eeprom_address ^^^\n");
 
 	return 0;
 }

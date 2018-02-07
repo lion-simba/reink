@@ -17,9 +17,13 @@
  */
 
 #include "printers.h"
+#include "util.h"
 
-printer_t printers[] = {
-	[PM_UNKNOWN] = {
+#include <stddef.h>
+#include <string.h>
+
+static const struct printer_info printers[] = {
+	{
 		.name = "Unknown printer",
 		.model_name = "Unknown printer",
 		.model_code = {0x00, 0x00},
@@ -37,8 +41,7 @@ printer_t printers[] = {
 			.len = 				0,
 			.addr = 			{0x00, 0x00, 0x00, 0x00},
 		},
-	},
-	[PM_SP790] = {
+	}, {
 		.name = "EPSON Stylus Photo 790",
 		.model_name = "Stylus Photo 790",
 		.model_code = {0x06, 0x31},
@@ -56,8 +59,7 @@ printer_t printers[] = {
 			.len = 				2,
 			.addr = 			{0x1a, 0x1b, 0x00, 0x00},
 		},
-	},
-	[PM_SC580] = {
+	}, {
 		.name = "EPSON Stylus Color 580",
 		.model_name = "Stylus COLOR 580",
 		.model_code = {0x06, 0x1b},
@@ -75,8 +77,7 @@ printer_t printers[] = {
 			.len = 				2,
 			.addr = 			{0x66, 0x67, 0x00, 0x00},
 		},
-	},
-	[PM_SP1290] = {
+	}, {
 		.name = "EPSON Stylus Photo 1290",
 		.model_name = "Stylus Photo 1290",
 		.model_code = {0x07, 0x19},
@@ -94,8 +95,7 @@ printer_t printers[] = {
 			.len = 				4,
 			.addr = 			{0x6c, 0x6d, 0x6e, 0x6f},
 		},
-	},
-	[PM_SC680] = {
+	}, {
 		.name = "EPSON Stylus Color 680",
 		.model_name = "Stylus COLOR 680",
 		.model_code = {0x06, 0x15},
@@ -113,8 +113,7 @@ printer_t printers[] = {
 			.len = 				2,
 			.addr = 			{0x1a, 0x1b, 0x00, 0x00},
 		},
-	},
-	[PM_SPT50] = {
+	}, {
 		.name = "Epson Stylus Photo T50",
 		.model_name = "Epson Stylus Photo T50",
 		.model_code = {0x77, 0x00},
@@ -132,8 +131,7 @@ printer_t printers[] = {
 			.len = 				4,
 			.addr = 			{0x1c, 0x1d, 0x1e, 0x1f},
 		},
-	},
-	[PM_SPP50] = {
+	}, {
 		.name = "Epson Stylus Photo P50",
 		.model_name = "Epson Stylus Photo P50",
 		.model_code = {0x77, 0x00},
@@ -151,7 +149,36 @@ printer_t printers[] = {
 			.len = 				4,
 			.addr = 			{0x1c, 0x1d, 0x1e, 0x1f},
 		},
-	}
+	}, {
+		.name = "Epson WF-2760",
+		.model_name = "WF-2760 Series",
+		.model_code = {0x37, 0x06},
+		.twobyte_addresses = 1,
+		.inkmap = {
+			.mask = 0,
+		},
+		.wastemap = {
+			.len = 0,
+		},
+	},
 };
 
-const unsigned int printers_count = sizeof(printers) / sizeof(printers[0]);
+bool is_unknown_printer(const struct printer_info *printer_info)
+{
+	return !strcmp(printer_info->model_name, "Unknown printer");
+}
+
+const struct printer_info *db_locate_printer_by_model(const char *model)
+{
+	size_t i;
+	const struct printer_info *printer_info;
+
+	for (i = 0; i < ARRAY_SIZE(printers); i++) {
+		printer_info = &printers[i];
+		if (!strcmp(printer_info->model_name, model))
+			return printer_info;
+	}
+
+	/* Default to the Unknown printer. */
+	return &printers[0];
+}
