@@ -25,6 +25,7 @@
 #define PM_SPT50		5	//EPSON Stylus Photo T50
 #define PM_SPP50		6	//EPSON Stylus Photo P50
 #define PM_XP620		7	//EPSON Expression Premium XP-620
+#define PM_XP821		8	//EPSON Expression Premium XP-821
 
 //ink counters EEPROM map
 #define INK_BLACK			0x01
@@ -35,18 +36,22 @@
 #define INK_LIGHTMAGENTA	0x20
 typedef struct _ink_map {
 	unsigned int  mask; //bit sum of INK_ defines of available inks	
-	unsigned char black[4];
-	unsigned char cyan[4];
-	unsigned char magenta[4];
-	unsigned char yellow[4];
-	unsigned char lightcyan[4];
-	unsigned char lightmagenta[4];
+	unsigned short black[4];
+	unsigned short cyan[4];
+	unsigned short magenta[4];
+	unsigned short yellow[4];
+	unsigned short lightcyan[4];
+	unsigned short lightmagenta[4];
 } ink_map_t;
 
 //waste counter EEPROM map
 typedef struct _waste_map {
+	int ctrl;			//need to reset protection
 	unsigned char len;		//count of used bytes from addr
-	unsigned char addr[5];
+	unsigned short addr[10];
+	unsigned char lenctr;
+	unsigned short addrctr[10];
+	unsigned char valctr[10];
 } waste_map_t;
 
 //the printer
