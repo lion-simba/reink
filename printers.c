@@ -34,6 +34,7 @@ printer_t printers[] = {
 			.lightmagenta = 	{0x00, 0x00, 0x00, 0x00},
 		},
 		.wastemap = {
+			.ctrl = 			0,
 			.len = 				0,
 			.addr = 			{0x00, 0x00, 0x00, 0x00},
 		},
@@ -53,6 +54,7 @@ printer_t printers[] = {
 			.lightmagenta = 	{0x12, 0x13, 0x14, 0x15},
 		},
 		.wastemap = {
+			.ctrl = 			0,
 			.len = 				2,
 			.addr = 			{0x1a, 0x1b, 0x00, 0x00},
 		},
@@ -72,6 +74,7 @@ printer_t printers[] = {
 			.lightmagenta = 	{0x00, 0x00, 0x00, 0x00},
 		},
 		.wastemap = {
+			.ctrl = 			0,
 			.len = 				2,
 			.addr = 			{0x66, 0x67, 0x00, 0x00},
 		},
@@ -91,6 +94,7 @@ printer_t printers[] = {
 			.lightmagenta = 	{0x58, 0x59, 0x5a, 0x5b},
 		},
 		.wastemap = {
+			.ctrl = 			0,
 			.len = 				4,
 			.addr = 			{0x6c, 0x6d, 0x6e, 0x6f},
 		},
@@ -110,6 +114,7 @@ printer_t printers[] = {
 			.lightmagenta = 	{0x12, 0x13, 0x14, 0x15},
 		},
 		.wastemap = {
+			.ctrl = 			0,
 			.len = 				2,
 			.addr = 			{0x1a, 0x1b, 0x00, 0x00},
 		},
@@ -129,6 +134,7 @@ printer_t printers[] = {
 			.lightmagenta = 	{0x12, 0x13, 0x14, 0x15},
 		},
 		.wastemap = {
+			.ctrl = 			0,
 			.len = 				4,
 			.addr = 			{0x1c, 0x1d, 0x1e, 0x1f},
 		},
@@ -148,8 +154,43 @@ printer_t printers[] = {
 			.lightmagenta = 	{0x12, 0x13, 0x14, 0x15},
 		},
 		.wastemap = {
+			.ctrl = 			0,
 			.len = 				4,
 			.addr = 			{0x1c, 0x1d, 0x1e, 0x1f},
+		},
+	},
+	[PM_XP620] = {
+		.name = "Epson Expression Premium XP-620",
+		.model_name = "XP-620 Series",
+		.model_code = {0x57, 0x05},
+		.twobyte_addresses = 1,
+		.inkmap = {
+			.mask = 0,
+		},
+		.wastemap = {
+			.ctrl = 			0,
+			.len = 				5,
+			.addr = 			{0x10, 0x11, 0x12, 0x13, 0x06},
+		},
+	},
+	[PM_XP821] = {
+		.name = "Epson Expression Premium XP-821",
+		.model_name = "XP-820 Series",
+		.model_code = {0x57, 0x05},
+		.twobyte_addresses = 1,
+		.inkmap = {
+			.mask = 0,
+		},
+		.wastemap = {
+			.ctrl = 			1,
+			.len = 				8,
+			.addr = 			{0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x06, 0x01ed},
+			.lenctr =			2,
+			.addrctr = 			{0x34, 0x35},
+			.valctr =			{0x5e, 0x5e},
+			// this model seems to require a suffix in EEPROM write command
+			.lensfx =			8,
+			.sfx =				{0x42, 0x6d, 0x75, 0x69, 0x62, 0x66, 0x62, 0x2f}
 		},
 	}
 };

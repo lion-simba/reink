@@ -677,7 +677,7 @@ int do_ink_reset(const char* raw_device, unsigned int pm, unsigned char ink_type
 {
 	int i;
 	unsigned char cur_ink;
-	unsigned char* cur_addr;
+	unsigned short* cur_addr;
 
 	int device; //file descriptor of the printer raw_device
 	int ctrl_socket; //IEEE 1284.4 socket identifier for "EPSON-CTRL" channel
@@ -883,6 +883,26 @@ int do_waste_reset(const char* raw_device, unsigned int pm)
 			return 1;
 		}
 	D_OK
+	D(fprintf(stderr, "Resetting Preotection... "));
+	if (printers[pm].wastemap.ctrl)
+	{
+		for (i=0;i<printers[pm].wastemap.lenctr;i++)
+			if (
+					write_eeprom_address(
+						device,
+					       	ctrl_socket,
+					       	pm,
+					       	printers[pm].wastemap.addrctr[i],
+					       	printers[pm].wastemap.valctr[i]
+					)
+			)
+			{
+				fprintf(stderr, "Can't write to eeprom.\n");
+				return 1;
+			}
+	}
+	D_OK
+	
 
 	if (close_channel(device, ctrl_socket) < 0)
 		return 1;
@@ -1530,7 +1550,15 @@ int write_eeprom_address(int fd, int socket_id, unsigned int pm, unsigned short 
 			D(fprintf(stderr, "Printer \"%s\" don't support two-byte addresses. Continuing using low byte only.\n", printers[pm].name));
 	}
 
-	init_command((fcmd_header_t*)cmd, pm, EFCLS_EEPROM_WRITE, EFCMD_EEPROM_WRITE, cmd_args_len);
+	// add device specific suffix if any at the end of the command
+	if (printers[pm].wastemap.lensfx) {
+		D(fprintf(stderr, "Add device suffix... "))
+		memcpy(cmd+cmd_len, printers[pm].wastemap.sfx, printers[pm].wastemap.lensfx);
+		cmd_len += printers[pm].wastemap.lensfx;
+	}
+
+	init_command((fcmd_header_t*)cmd, pm, EFCLS_EEPROM_WRITE, EFCMD_EEPROM_WRITE, cmd_args_len + printers[pm].wastemap.lensfx);
+
 
 	D(fprintf(stderr, "Writing %#x to eeprom address %#x... ", data, addr))
 	actual = INPUT_BUF_LEN;
