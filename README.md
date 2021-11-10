@@ -36,6 +36,7 @@ channels, service discovery, data transmission and so on).
 * EPSON Stylus Color 680
 * EPSON Stylus Photo T50
 * EPSON Stylus Photo P50
+* EPSON XP-821
 
 ## How to get my printer supported?
 See [here](http://lion-simba.github.io/reink/report.html).

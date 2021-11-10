@@ -188,6 +188,9 @@ printer_t printers[] = {
 			.lenctr =			2,
 			.addrctr = 			{0x34, 0x35},
 			.valctr =			{0x5e, 0x5e},
+			// this model seems to require a suffix in EEPROM write command
+			.lensfx =			8,
+			.sfx =				{0x42, 0x6d, 0x75, 0x69, 0x62, 0x66, 0x62, 0x2f}
 		},
 	}
 };

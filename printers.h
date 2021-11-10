@@ -52,6 +52,9 @@ typedef struct _waste_map {
 	unsigned char lenctr;
 	unsigned short addrctr[10];
 	unsigned char valctr[10];
+	// in case the device requires a suffix in EEPROM write command
+	unsigned char lensfx; 	// suffix length
+	unsigned char sfx[10];	// suffix raw data
 } waste_map_t;
 
 //the printer

@@ -1550,7 +1550,15 @@ int write_eeprom_address(int fd, int socket_id, unsigned int pm, unsigned short 
 			D(fprintf(stderr, "Printer \"%s\" don't support two-byte addresses. Continuing using low byte only.\n", printers[pm].name));
 	}
 
-	init_command((fcmd_header_t*)cmd, pm, EFCLS_EEPROM_WRITE, EFCMD_EEPROM_WRITE, cmd_args_len);
+	// add device specific suffix if any at the end of the command
+	if (printers[pm].wastemap.lensfx) {
+		D(fprintf(stderr, "Add device suffix... "))
+		memcpy(cmd+cmd_len, printers[pm].wastemap.sfx, printers[pm].wastemap.lensfx);
+		cmd_len += printers[pm].wastemap.lensfx;
+	}
+
+	init_command((fcmd_header_t*)cmd, pm, EFCLS_EEPROM_WRITE, EFCMD_EEPROM_WRITE, cmd_args_len + printers[pm].wastemap.lensfx);
+
 
 	D(fprintf(stderr, "Writing %#x to eeprom address %#x... ", data, addr))
 	actual = INPUT_BUF_LEN;
