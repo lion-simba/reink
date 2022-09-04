@@ -163,7 +163,7 @@
 #define INPUT_BUF_LEN	1024
 
 #define D(__c) 	if (ri_debug) {__c;} while(0)
-#define D_OK 	D(fprintf(stderr, "OK\n"));
+#define D_OK() 	D(fprintf(stderr, "OK\n")); while(0)
 
 int ri_debug = 0;
 
@@ -663,7 +663,7 @@ int do_ink_levels(const char* raw_device, unsigned int pmodel)
 	readed = INPUT_BUF_LEN;
 	if (printer_transact(device, ctrl_socket, "st\1\0\1", 5, buf, &readed))
 		return 1;
-	D_OK
+	D_OK();
 
 	D(fprintf(stderr, "Parsing result... "));
 	if (parse_ink_result(buf, readed))
@@ -671,7 +671,7 @@ int do_ink_levels(const char* raw_device, unsigned int pmodel)
 		fprintf(stderr, "FAIL.\n");
 		return 1;
 	}
-	D_OK
+	D_OK();
 
 	if (close_channel(device, ctrl_socket) < 0)
 		return 1;
@@ -749,7 +749,7 @@ int do_ink_reset(const char* raw_device, unsigned int pm, unsigned char ink_type
 				fprintf(stderr, "Can't write to eeprom.\n");
 				return 1;
 			}
-		D_OK
+		D_OK();
 	}
 	
 	if (close_channel(device, ctrl_socket) < 0)
@@ -868,7 +868,7 @@ int do_eeprom_dump(const char* raw_device,
 	}
 
 
-	D_OK
+	D_OK();
 
 	if (close_channel(device, ctrl_socket) < 0)
 		return 1;
@@ -904,7 +904,7 @@ int do_eeprom_write(const char* raw_device, unsigned int pm, unsigned short int 
 		fprintf(stderr, "Fail to write EEPROM data to address %#x.\n", addr);
 		return 1;
 	}
-	D_OK
+	D_OK();
 
 	D(fprintf(stderr, "Verify by reading that byte... "));
 	if (read_eeprom_address(device, ctrl_socket, pm, addr, &readed_data))
@@ -918,7 +918,7 @@ int do_eeprom_write(const char* raw_device, unsigned int pm, unsigned short int 
 		fprintf(stderr, "Verification failed (readed byte = %#x).\n", readed_data);
 		return 1;
 	}
-	D_OK
+	D_OK();
 
 	if (close_channel(device, ctrl_socket) < 0)
 		return 1;
@@ -955,7 +955,7 @@ int do_waste_reset(const char* raw_device, unsigned int pm)
 			fprintf(stderr, "Can't write to eeprom.\n");
 			return 1;
 		}
-	D_OK
+	D_OK();
 
 	if (close_channel(device, ctrl_socket) < 0)
 		return 1;
@@ -1270,7 +1270,7 @@ unsigned int printer_model(const char* raw_device)
 	readed = INPUT_BUF_LEN;
 	if (printer_transact(device, ctrl_socket, "di\1\0\1", 5, buf, &readed))
 		return PM_UNKNOWN;
-	D_OK
+	D_OK();
 
 	D(fprintf(stderr, "Parsing result... "));
 	if (get_tag(buf, readed, "MDL:", strModel, MAX_MODEL_LEN))
@@ -1278,7 +1278,7 @@ unsigned int printer_model(const char* raw_device)
 		D(fprintf(stderr, "Parse failed.\n"));
 		return PM_UNKNOWN;
 	}
-	D_OK
+	D_OK();
 
 	for(i = 0; i < printers_count; i++)
 	{
@@ -1318,7 +1318,7 @@ int printer_connect(const char* raw_device)
 		fprintf(stderr, "Error opening device file '%s': %s\n", raw_device, strerror(errno));
 		return -1;
 	}
-	D_OK
+	D_OK();
 
 	clearSndBuf(device); //if there are some data from previous incoreectly terminated session
 
@@ -1328,7 +1328,7 @@ int printer_connect(const char* raw_device)
 		fprintf(stderr, "Can't enter in IEEE 1284.4 mode. Wrong printer device file?\n");
 		return -1;
 	}
-	D_OK
+	D_OK();
 
 	D(fprintf(stderr, "Perfoming IEEE 1284.4 Init transaction... "));
 	if (!Init(device))
@@ -1336,7 +1336,7 @@ int printer_connect(const char* raw_device)
 		fprintf(stderr, "IEEE 1284.4: \"Init\" transaction failed.\n");
 		return -1;
 	}
-	D_OK
+	D_OK();
 
 	D(fprintf(stderr, "^^^ printer_connect ^^^\n"));
 
@@ -1353,7 +1353,7 @@ int printer_disconnect(int fd)
 		fprintf(stderr, "IEEE 1284.4: \"Exit\" transaction failed.\n");
 		return -1;
 	}
-	D_OK
+	D_OK();
 
 	D(fprintf(stderr, "Closing raw device... "));
 	fd = close(fd);
@@ -1362,7 +1362,7 @@ int printer_disconnect(int fd)
 		fprintf(stderr, "Error closing printer device file: %s\n", strerror(errno));
 		return -1;
 	}
-	D_OK
+	D_OK();
 
 	D(fprintf(stderr, "^^^ printer_disconnect ^^^\n"));
 
@@ -1392,7 +1392,7 @@ int open_channel(int fd, const char* service_name)
 		fprintf(stderr, "IEEE 1284.4: \"OpenChannel\" transaction failed.\n");
 		return -1;
 	}
-	D_OK
+	D_OK();
 
 	D(fprintf(stderr, "^^^ open_channel ^^^\n"));
 
@@ -1409,7 +1409,7 @@ int close_channel(int fd, int socket_id)
 		fprintf(stderr, "IEEE 1284.4: \"CloseChannel\" transaction failed.\n");
 		return -1;
 	}
-	D_OK
+	D_OK();
 
 	D(fprintf(stderr, "^^^ close_channel ^^^\n"));
 
@@ -1441,7 +1441,7 @@ int printer_transact(int fd, int socket_id, const char* buf_send, int send_len, 
 	fprintf(stderr, "IEEE 1284.4: \"Credit\" transaction failed.\n");
 	return -1;
 	}
-	D_OK
+	D_OK();
 	*/
 
 	D(fprintf(stderr, "Writing data to printer... "));
@@ -1450,7 +1450,7 @@ int printer_transact(int fd, int socket_id, const char* buf_send, int send_len, 
 		fprintf(stderr, "IEEE 1284.4: Error sending data to channel %d-%d.\n", socket_id, socket_id);
 		return -1;
 	}
-	D_OK
+	D_OK();
 
 	D(fprintf(stderr, "Get the answer... "));
 	if ((*recv_len = readData(fd, socket_id, buf_recv, buf_len)) < 0)
@@ -1458,7 +1458,7 @@ int printer_transact(int fd, int socket_id, const char* buf_send, int send_len, 
 		fprintf(stderr, "IEEE 1284.4: Error recieving data from channel %d-%d.\n", socket_id, socket_id);
 		return -1;
 	}
-	D_OK
+	D_OK();
 
 	D(fprintf(stderr, "^^^ printer_transact ^^^\n"));
 
@@ -1540,7 +1540,7 @@ int read_eeprom_address(int fd, int socket_id, unsigned int pm, unsigned short i
 		D(fprintf(stderr, "Can't get reply data.\n"));
 		return -1;
 	}
-	D_OK
+	D_OK();
 
 	if (strlen(reply_data) != reply_data_len)
 	{
@@ -1618,7 +1618,7 @@ int write_eeprom_address(int fd, int socket_id, unsigned int pm, unsigned short 
 		D(fprintf(stderr, "Can't get reply data.\n"));
 		return -1;
 	}
-	D_OK
+	D_OK();
 
 	D(fprintf(stderr, "^^^ write_eeprom_address ^^^\n"));
 
