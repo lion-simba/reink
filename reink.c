@@ -95,7 +95,7 @@
 	./reink -i -r printer_raw_device
 
     - to dump data from EEPROM
-	./reink -d <addr>[-<addr>] -r printer_raw_device
+	./reink -d <addr>[-<addr>] -r printer_raw_device [-f path/to/file]
 	<addr> - two-byte address of EEPROM to read
 	Two addresses recognized as range.
 	Example: ./reink -d 0000-0FA0 -r /dev/usb/lp0
@@ -303,7 +303,7 @@ int parse_ink_result(const char* buf, int len);
 /* === main workers === */
 int do_ink_levels(const char* raw_device, unsigned int pm);
 int do_ink_reset(const char* raw_device, unsigned int pm, unsigned char ink_type);
-int do_eeprom_dump(const char* raw_device, unsigned int pm, unsigned short int start_addr, unsigned short int end_addr);
+int do_eeprom_dump(const char* raw_device, unsigned int pm, unsigned short int start_addr, unsigned short int end_addr, const char* file_path);
 int do_eeprom_write(const char* raw_device, unsigned int pm, unsigned short int addr, unsigned char data);
 int do_make_report(const char* raw_device, unsigned char model_code[]);
 int do_waste_reset(const char* raw_device, unsigned int pm);
@@ -316,6 +316,8 @@ int main(int argc, char** argv)
 	unsigned int pmodel = PM_UNKNOWN; 	//printer model
 
 	char* raw_device = NULL;	//-r option argument
+
+	char* file_path = NULL;		//-f option argument
 
 	char* addr_range = NULL;	//-d option argument
 	unsigned short int addr_s;	//start address for CMD_DUMPEEPROM
@@ -347,7 +349,7 @@ int main(int argc, char** argv)
 
 	onebyte[2] = '\0';
 
-	while ((opt = getopt(argc, argv, "sir:d:w:z::t::")) != -1)
+	while ((opt = getopt(argc, argv, "sir:d:w:z::t::f:")) != -1)
 	{
 		switch (opt)
 		{
@@ -361,6 +363,9 @@ int main(int argc, char** argv)
 			break;
 		case 'r':
 			raw_device = optarg;
+			break;
+		case 'f':
+			file_path = optarg;
 			break;
 		case 'd':
 			if (command != CMD_NONE)
@@ -421,6 +426,11 @@ int main(int argc, char** argv)
 
 	if (raw_device == NULL)
 	{
+		print_usage(argv[0]);
+		return 1;
+	}
+
+	if (file_path && command != CMD_DUMPEEPROM) {
 		print_usage(argv[0]);
 		return 1;
 	}
@@ -566,7 +576,7 @@ int main(int argc, char** argv)
 		break;
 
 	case CMD_DUMPEEPROM:
-		return do_eeprom_dump(raw_device, pmodel, addr_s, addr_e);
+		return do_eeprom_dump(raw_device, pmodel, addr_s, addr_e, file_path);
 		break;
 
 	case CMD_WRITEEEPROM:
@@ -597,7 +607,7 @@ Basic usage is:\n\
 	%s -i -r printer_raw_device\n\
 \n\
     - to dump data from EEPROM\n\
-	%s -d <addr>[-<addr>] -r printer_raw_device\n\
+	%s -d <addr>[-<addr>] -r printer_raw_device [-f path/to/file]\n\
 	<addr> - two-byte address of EEPROM to read\n\
 	Two addresses recognized as range.\n\
 	Example: %s -d 0000-A000 -r /dev/usb/lp0\n\
@@ -753,7 +763,11 @@ int do_ink_reset(const char* raw_device, unsigned int pm, unsigned char ink_type
 	return 0;
 }
 
-int do_eeprom_dump(const char* raw_device, unsigned int pm, unsigned short int start_addr, unsigned short int end_addr)
+int do_eeprom_dump(const char* raw_device,
+		   unsigned int pm,
+		   unsigned short int start_addr,
+		   unsigned short int end_addr,
+		   const char* file_path)
 {
 	int device; //file descriptor of the printer raw_device
 	int ctrl_socket; //IEEE 1284.4 socket identifier for "EPSON-CTRL" channel
@@ -761,6 +775,7 @@ int do_eeprom_dump(const char* raw_device, unsigned int pm, unsigned short int s
 	unsigned char data; //eeprom data (one byte)
 	unsigned short int cur_addr; //current address
 
+	int fd;
 	int i;
 
 	D(fprintf(stderr, "=== do_eeprom_dump ===\n"))
@@ -783,17 +798,75 @@ int do_eeprom_dump(const char* raw_device, unsigned int pm, unsigned short int s
 
 	D(fprintf(stderr, "Let's get the EEPROM dump (%x - %x)...\n", start_addr, end_addr))
 
+	if (file_path) {
+		struct stat sb;
+		int rc;
+
+		rc = lstat(file_path, &sb);
+		if (rc == 0) {
+			fprintf(stderr, "file %s already exists\n", file_path);
+			return 1;
+		} else {
+			rc = errno;
+			if (rc != ENOENT) {
+				fprintf(stderr,
+					"lstat %s failed with error %d: %s",
+					file_path, rc, strerror(rc));
+				return 1;
+			}
+		}
+
+		fd = open(file_path, O_RDWR|O_CREAT, 00664);
+		if (fd == -1) {
+			fd = errno;
+			fprintf(stderr,
+				"open %s failed with error %d: %s",
+				file_path, fd, strerror(fd));
+			return 1;
+		}
+	}
+
 	for (cur_addr = start_addr; (cur_addr <= end_addr) && (cur_addr >= start_addr); cur_addr++)
 	{
+		ssize_t count = 0, remaining = 0;
+
 		if (read_eeprom_address(device, ctrl_socket, pm, cur_addr, &data))
 		{
 			fprintf(stderr, "Fail to read EEPROM data from address %x.\n", cur_addr);
 			return 1;
 		}
 		printf("0x%04X = 0x%02X\n", cur_addr, data);
+
+		if (file_path) {
+			remaining = sizeof(data);
+			do {
+				count = write(fd, &data, sizeof(data));
+				if (count == -1) {
+					count = errno;
+					fprintf(stderr,
+						"write %s failed with error %d: %s\n",
+						file_path, count, strerror(count));
+					return 1;
+				}
+				remaining -= count;
+			} while (remaining > 0);
+		}
+
 		if (cur_addr == end_addr)
 			break; //or there may be short int overflow and infinite loop
 	}
+
+	if (file_path) {
+		fd = close(fd);
+		if (fd == -1) {
+			fd = errno;
+			fprintf(stderr,
+				"close %s failed with error %d: %s",
+				file_path, fd, strerror(fd));
+			return 1;
+		}
+	}
+
 
 	D_OK
 
